@@ -55,6 +55,18 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           cargo +stable generate-lockfile
+          python3 - <<'PY'
+          import re, subprocess
+          for _ in range(4):
+              lock = open('Cargo.lock').read()
+              bad = [(n, v) for n, v in re.findall(r'name = "((?:sbor|scrypto|radix)[\w-]*)"\nversion = "([^"]+)"', lock) if v != '1.3.0']
+              print('Do cofniecia:', bad)
+              if not bad:
+                  break
+              for n, v in bad:
+                  subprocess.run(['cargo', '+stable', 'update', '-p', f'{n}@{v}', '--precise', '1.3.0'])
+          PY
+          grep -A1 -E '^name = "(sbor|scrypto|radix)' Cargo.lock
 
       - name: Buduj kontrakt
         working-directory: scrypto
