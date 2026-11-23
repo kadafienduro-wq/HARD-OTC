@@ -1,7 +1,7 @@
 import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
 import { CONFIG } from './config'
 import * as M from './manifests'
-import { desk, getBalances, getLocked, getOffers, getRiderBadges, getTokens, getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView } from './gateway'
+import { desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getTokens, getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView } from './gateway'
 
 // ---------- Stan ----------
 let account: string | null = null
@@ -9,6 +9,7 @@ let riderIds: string[] = []
 let offers: OfferView[] = []
 let balances: { address: string; amount: string }[] = []
 let myLocked = 0
+let myUnlock = { amount: 0, readyAt: 0 }
 let burned = 0
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
@@ -50,6 +51,7 @@ async function refreshAll() {
     await loadDeskInfo().catch(() => {})
     offers = await getOffers()
     myLocked = riderIds[0] ? await getLocked(riderIds[0]).catch(() => 0) : 0
+    myUnlock = riderIds[0] ? await getUnlock(riderIds[0]).catch(() => ({ amount: 0, readyAt: 0 })) : { amount: 0, readyAt: 0 }
     burned = await getVaultAmount(desk.burnedVault).catch(() => 0)
     balances = account ? await getBalances(account).catch(() => []) : []
     await getTokens([
@@ -136,6 +138,7 @@ async function render() {
 
   // Rider
   renderTiers()
+  renderUnlock()
   renderTreasury()
   $('#rider-info').textContent = !account
     ? 'Połącz portfel.'
@@ -169,6 +172,24 @@ function renderTiers() {
   const canReserve = desk.tiers.length > 0 && myLocked >= desk.tiers[0].threshold
   $<HTMLInputElement>('#reserved').disabled = !canReserve
   $('#reserved-note').hidden = canReserve
+}
+
+function periodText(sec: number) {
+  if (sec >= 86400) return `${Math.round(sec / 86400)} dni`
+  if (sec >= 3600) return `${Math.round(sec / 3600)} godz.`
+  return `${Math.max(1, Math.round(sec / 60))} min`
+}
+
+function renderUnlock() {
+  $('#unlock-period-info').textContent = desk.unlockPeriod
+    ? `Najpierw prosisz o wypłatę, a HARD możesz odebrać po ${periodText(desk.unlockPeriod)}. W tym czasie nie liczą się do rabatu.`
+    : ''
+  const u = myUnlock
+  if (!u.amount) return ($('#unlock-box').innerHTML = '')
+  const ready = Date.now() >= u.readyAt
+  $('#unlock-box').innerHTML = `<div class="stat" style="margin-top:12px"><span>W trakcie wypłaty</span><b>${nf(u.amount)} HARD</b>
+    <p class="muted" style="margin:6px 0 10px">${ready ? 'Gotowe do odebrania.' : `Do odebrania od: ${new Date(u.readyAt).toLocaleString('pl-PL')}`}</p>
+    <button id="withdraw-unlocked-btn" class="primary" ${ready ? '' : 'disabled'}>Odbierz HARD</button></div>`
 }
 
 function renderTreasury() {
@@ -239,8 +260,14 @@ $('#lock-btn').addEventListener('click', () => {
   const amount = $<HTMLInputElement>('#lock-amount').value
   if (account && riderIds[0]) send(M.lockHard(account, riderIds[0], amount), `Zablokowano ${amount} HARD`)
 })
-$('#unlock-btn').addEventListener('click', () => {
-  if (account && riderIds[0]) send(M.unlockHard(account, riderIds[0]), 'Lock HARD wypłacony')
+$('#request-unlock-btn').addEventListener('click', () => {
+  const amount = $<HTMLInputElement>('#unlock-amount').value
+  if (!(Number(amount) > 0)) return toast('Podaj, ile HARD chcesz wypłacić.')
+  if (account && riderIds[0]) send(M.requestUnlock(account, riderIds[0], amount), `Wypłata ${amount} HARD zlecona`)
+})
+document.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).id === 'withdraw-unlocked-btn' && account && riderIds[0])
+    send(M.withdrawUnlocked(account, riderIds[0]), 'HARD odebrane z locka')
 })
 
 // Formularz oferty

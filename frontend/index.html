@@ -61,12 +61,18 @@
         <button id="mint-badge" class="primary">Wybij darmowy Rider Badge</button>
         <h2 style="margin-top:24px">Lock HARD: niższe opłaty</h2>
         <div id="tier-box"></div>
-        <p class="muted">Blokada nie daje zysku i możesz ją wycofać w każdej chwili. Od 1 000 HARD odblokowujesz też oferty zarezerwowane dla konkretnego kupującego.</p>
+        <p class="muted">Blokada nie daje zysku. Wypłata wymaga okresu oczekiwania (poniżej). Od 1 000 HARD odblokowujesz też oferty zarezerwowane dla konkretnego kupującego.</p>
         <div class="row">
           <input id="lock-amount" type="number" min="0" value="1000" />
           <button id="lock-btn">Zablokuj HARD</button>
-          <button id="unlock-btn">Wypłać cały lock</button>
         </div>
+        <h2 style="margin-top:20px;font-size:20px">Wypłata z locka</h2>
+        <p class="muted" id="unlock-period-info"></p>
+        <div class="row">
+          <input id="unlock-amount" type="number" min="0" placeholder="Ile HARD" />
+          <button id="request-unlock-btn">Poproś o wypłatę</button>
+        </div>
+        <div id="unlock-box"></div>
       </section>
 
       <section id="tab-treasury" hidden>

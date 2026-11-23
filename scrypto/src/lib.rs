@@ -9,6 +9,9 @@
 //!    >= 1 000 HARD: -20%, >= 10 000: -40%, >= 50 000: -60% (na swoją połowę opłaty).
 //! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Opcjonalnie admin może
 //!    włączyć spalanie części opłat pobranych w HARD (domyślnie 0% = wyłączone).
+//! 8. Wypłata locka: najpierw prośba (request_unlock), po okresie oczekiwania
+//!    (domyślnie 7 dni, ustawia admin) odbiór (withdraw_unlocked). HARD w trakcie
+//!    wypłaty nie liczą się do rabatu.
 //! 7. Wystawienie oferty kosztuje opłatę w HARD (domyślnie 1000 HARD, ustawia admin).
 //!    Trafia do skarbca i nie wraca przy anulowaniu.
 //! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
@@ -93,13 +96,15 @@ mod hard_otc {
             accept_offer => PUBLIC;
             cancel_offer => PUBLIC;
             lock_hard => PUBLIC;
-            unlock_hard => PUBLIC;
+            request_unlock => PUBLIC;
+            withdraw_unlocked => PUBLIC;
             get_offer => PUBLIC;
             quote_fee => PUBLIC;
             withdraw_treasury => restrict_to: [OWNER];
             set_paused => restrict_to: [OWNER];
             set_burn_share => restrict_to: [OWNER];
             set_listing_fee => restrict_to: [OWNER];
+            set_unlock_period => restrict_to: [OWNER];
         }
     }
 
@@ -122,6 +127,12 @@ mod hard_otc {
         /// HARD zamknięte na zawsze. Nie ma metody, która je wypłaca.
         burned_hard: Vault,
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
+        /// HARD w trakcie wypłaty (nie liczą się do rabatu)
+        unlocking: KeyValueStore<NonFungibleLocalId, Vault>,
+        /// od kiedy można odebrać HARD z `unlocking`
+        unlock_ready_at: KeyValueStore<NonFungibleLocalId, Instant>,
+        /// okres oczekiwania na wypłatę locka, w sekundach
+        unlock_period_seconds: i64,
         paused: bool,
     }
 
@@ -169,6 +180,9 @@ mod hard_otc {
                 fees_collected: IndexMap::new(),
                 burned_hard: Vault::new(hard_resource),
                 hard_locks: KeyValueStore::new(),
+                unlocking: KeyValueStore::new(),
+                unlock_ready_at: KeyValueStore::new(),
+                unlock_period_seconds: 7 * 24 * 3600,
                 paused: false,
             }
             .instantiate()
@@ -381,19 +395,41 @@ mod hard_otc {
             Runtime::emit_event(HardLockChangedEvent { rider: who, locked_total });
         }
 
-        /// Wypłaca cały lock. Bez okresu blokady, bez zysku.
-        pub fn unlock_hard(&mut self, rider: Proof) -> Bucket {
+        /// Krok 1 wypłaty: przenosi `amount` HARD z locka do kolejki wypłat.
+        /// Od tej chwili nie liczą się do rabatu. Zegar startuje od nowa przy każdej prośbie.
+        pub fn request_unlock(&mut self, rider: Proof, amount: Decimal) {
             let who = self.check_rider(rider);
-            let bucket = self
-                .hard_locks
-                .get_mut(&who)
-                .expect("Nothing locked")
-                .take_all();
-            Runtime::emit_event(HardLockChangedEvent {
-                rider: who,
-                locked_total: Decimal::ZERO,
-            });
-            bucket
+            assert!(amount > Decimal::ZERO, "Amount must be positive");
+            let bucket = {
+                let mut lock = self.hard_locks.get_mut(&who).expect("Nothing locked");
+                assert!(lock.amount() >= amount, "Not enough HARD locked");
+                lock.take(amount)
+            };
+
+            let exists = self.unlocking.get(&who).is_some();
+            if exists {
+                self.unlocking.get_mut(&who).unwrap().put(bucket);
+            } else {
+                self.unlocking.insert(who.clone(), Vault::with_bucket(bucket));
+            }
+
+            let now = Clock::current_time_rounded_to_seconds();
+            let ready = Instant::new(now.seconds_since_unix_epoch + self.unlock_period_seconds);
+            self.unlock_ready_at.insert(who.clone(), ready);
+
+            let locked_total = self.locked_amount(&who);
+            Runtime::emit_event(HardLockChangedEvent { rider: who, locked_total });
+        }
+
+        /// Krok 2 wypłaty: po upływie okresu oczekiwania oddaje HARD z kolejki.
+        pub fn withdraw_unlocked(&mut self, rider: Proof) -> Bucket {
+            let who = self.check_rider(rider);
+            let ready = *self.unlock_ready_at.get(&who).expect("No unlock requested");
+            assert!(
+                Clock::current_time_is_at_or_after(ready, TimePrecision::Second),
+                "Unlock period has not passed yet"
+            );
+            self.unlocking.get_mut(&who).expect("No unlock requested").take_all()
         }
 
         // ---------- Odczyt ----------
@@ -418,6 +454,12 @@ mod hard_otc {
 
         pub fn set_paused(&mut self, paused: bool) {
             self.paused = paused;
+        }
+
+        /// Okres oczekiwania na wypłatę locka w sekundach (np. 604800 = 7 dni, 300 = 5 minut).
+        pub fn set_unlock_period(&mut self, seconds: i64) {
+            assert!(seconds >= 0, "Period cannot be negative");
+            self.unlock_period_seconds = seconds;
         }
 
         /// Opłata w HARD za wystawienie oferty (0 = darmowe wystawianie).

@@ -65,8 +65,11 @@ export type DeskInfo = {
   feesCollected: { address: string; amount: string }[]
   burnedVault: string
   hardLocksKvs: string
+  unlockingKvs: string
+  unlockReadyKvs: string
+  unlockPeriod: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '' }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -82,6 +85,9 @@ export async function loadDeskInfo() {
     feesCollected: (state.fees_collected ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
     burnedVault: state.burned_hard ?? '',
     hardLocksKvs: state.hard_locks ?? '',
+    unlockingKvs: state.unlocking ?? '',
+    unlockReadyKvs: state.unlock_ready_at ?? '',
+    unlockPeriod: Number(state.unlock_period_seconds ?? 0),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -104,6 +110,20 @@ export async function getLocked(riderId: string): Promise<number> {
   })
   const vault = data.entries?.[0]?.value?.programmatic_json?.value
   return vault ? getVaultAmount(vault) : 0
+}
+
+/** HARD w trakcie wypłaty i od kiedy można je odebrać (ms). */
+export async function getUnlock(riderId: string): Promise<{ amount: number; readyAt: number }> {
+  if (!desk.unlockingKvs || !riderId) return { amount: 0, readyAt: 0 }
+  const key = [{ key_json: { kind: 'NonFungibleLocalId', value: riderId } }]
+  const [u, t] = await Promise.all([
+    post('/state/key-value-store/data', { key_value_store_address: desk.unlockingKvs, keys: key }),
+    post('/state/key-value-store/data', { key_value_store_address: desk.unlockReadyKvs, keys: key }),
+  ])
+  const vault = u.entries?.[0]?.value?.programmatic_json?.value
+  const ready = decode(t.entries?.[0]?.value?.programmatic_json)
+  const sec = ready == null ? 0 : typeof ready === 'object' ? Number(ready.seconds_since_unix_epoch) : Number(ready)
+  return { amount: vault ? await getVaultAmount(vault) : 0, readyAt: sec * 1000 }
 }
 
 /** Mnożnik opłaty dla danej ilości zablokowanych HARD. */

@@ -60,3 +60,9 @@ CALL_METHOD Address("${desk()}") "lock_hard" Proof("rider") Bucket("hard");${dep
 
 export const unlockHard = (account: string, riderId: string) => `${riderProof(account, riderId)}
 CALL_METHOD Address("${desk()}") "unlock_hard" Proof("rider");${depositAll(account)}`
+
+export const requestUnlock = (account: string, riderId: string, amount: string) => `${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "request_unlock" Proof("rider") Decimal("${amount}");${depositAll(account)}`
+
+export const withdrawUnlocked = (account: string, riderId: string) => `${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "withdraw_unlocked" Proof("rider");${depositAll(account)}`
