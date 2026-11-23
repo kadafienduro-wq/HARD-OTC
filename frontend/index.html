@@ -59,9 +59,12 @@
     <dialog id="create-dialog">
       <form id="create-form" method="dialog">
         <h2>Nowa oferta (escrow)</h2>
-        <label>Sprzedaję (adres zasobu)<input name="sellResource" list="known" required /></label>
+        <label>Sprzedaję<select name="sell" id="sell" required></select></label>
+        <div class="pick" id="sell-preview"></div>
         <label>Ilość<input name="sellAmount" type="number" step="any" min="0" required /></label>
-        <label>Chcę w zamian (adres zasobu)<input name="askResource" list="known" required /></label>
+        <label>Chcę w zamian<select name="ask" id="ask" required></select></label>
+        <div class="pick" id="ask-preview"></div>
+        <label id="ask-custom-wrap" hidden>Adres tokena (resource_tdx_2_…)<input name="askCustom" placeholder="resource_tdx_2_…" /></label>
         <label>Cena (łącznie)<input name="askAmount" type="number" step="any" min="0" required /></label>
         <label>Ważność
           <select name="expiry"><option value="1">1 h</option><option value="6">6 h</option><option value="72" selected>72 h</option></select>
@@ -75,7 +78,6 @@
         </div>
       </form>
     </dialog>
-    <datalist id="known"></datalist>
 
     <div id="toast" hidden></div>
     <script type="module" src="/src/main.ts"></script>

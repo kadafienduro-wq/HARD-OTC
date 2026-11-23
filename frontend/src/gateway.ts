@@ -97,22 +97,40 @@ export async function getOffers(): Promise<OfferView[]> {
     .sort((a: OfferView, b: OfferView) => Number(b.id) - Number(a.id))
 }
 
-const symbolCache = new Map<string, string>()
+export type TokenInfo = { address: string; symbol: string; name: string; icon: string | null }
 
-export async function getSymbols(addresses: string[]): Promise<Map<string, string>> {
-  const missing = [...new Set(addresses)].filter((a) => !symbolCache.has(a))
-  for (const known of CONFIG.knownResources) symbolCache.set(known.address, known.symbol)
-  const todo = missing.filter((a) => !symbolCache.has(a))
-  if (todo.length) {
-    const r = await post('/state/entity/details', { addresses: todo })
+const tokenCache = new Map<string, TokenInfo>()
+
+/** Pobiera symbol, nazwę i ikonę tokenów (z metadanych na ledgerze). */
+export async function getTokens(addresses: string[]): Promise<Map<string, TokenInfo>> {
+  const todo = [...new Set(addresses)].filter((a) => a && !tokenCache.has(a))
+  for (let i = 0; i < todo.length; i += 20) {
+    const r = await post('/state/entity/details', { addresses: todo.slice(i, i + 20) })
     for (const item of r.items ?? []) {
       const meta = item.metadata?.items ?? []
-      const sym = meta.find((m: any) => m.key === 'symbol')?.value?.typed?.value
-      const name = meta.find((m: any) => m.key === 'name')?.value?.typed?.value
-      symbolCache.set(item.address, sym || name || short(item.address))
+      const get = (k: string) => meta.find((m: any) => m.key === k)?.value?.typed?.value as string | undefined
+      const icon = get('icon_url')
+      tokenCache.set(item.address, {
+        address: item.address,
+        symbol: get('symbol') || get('name') || short(item.address),
+        name: get('name') || '',
+        icon: icon && icon.startsWith('https://') ? icon : null,
+      })
     }
   }
-  return symbolCache
+  return tokenCache
+}
+
+export const tokenInfo = (addr: string): TokenInfo =>
+  tokenCache.get(addr) ?? { address: addr, symbol: short(addr), name: '', icon: null }
+
+/** Salda tokenów fungible na koncie. */
+export async function getBalances(account: string): Promise<{ address: string; amount: string }[]> {
+  const r = await post('/state/entity/details', { addresses: [account], aggregation_level: 'Global' })
+  const items = r.items?.[0]?.fungible_resources?.items ?? []
+  return items
+    .map((i: any) => ({ address: i.resource_address, amount: String(i.amount) }))
+    .filter((b: any) => Number(b.amount) > 0)
 }
 
 export const short = (a: string) => (a.length > 20 ? `${a.slice(0, 12)}…${a.slice(-6)}` : a)

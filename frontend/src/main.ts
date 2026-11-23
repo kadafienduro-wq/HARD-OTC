@@ -1,12 +1,13 @@
 import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
 import { CONFIG } from './config'
 import * as M from './manifests'
-import { getOffers, getRiderBadges, getSymbols, loadDeskInfo, short, type OfferView } from './gateway'
+import { getBalances, getOffers, getRiderBadges, getTokens, loadDeskInfo, short, tokenInfo, type OfferView } from './gateway'
 
 // ---------- Stan ----------
 let account: string | null = null
 let riderIds: string[] = []
 let offers: OfferView[] = []
+let balances: { address: string; amount: string }[] = []
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
 
@@ -45,7 +46,13 @@ async function refreshRider() {
 async function refreshAll() {
   try {
     offers = await getOffers()
-    await getSymbols(offers.flatMap((o) => [o.sellResource, o.askResource]))
+    balances = account ? await getBalances(account).catch(() => []) : []
+    await getTokens([
+      ...offers.flatMap((o) => [o.sellResource, o.askResource]),
+      ...balances.map((b) => b.address),
+      ...CONFIG.knownResources.map((r) => r.address),
+      CONFIG.hardResource,
+    ])
   } catch (e) {
     console.error(e)
     toast('Nie udało się pobrać ofert. Sprawdź adresy w config.ts.')
@@ -55,12 +62,23 @@ async function refreshAll() {
 }
 
 // ---------- Widok ----------
-const sym = (addr: string) => {
-  const known = CONFIG.knownResources.find((r) => r.address === addr)
-  return known?.symbol ?? short(addr)
+const esc = (s: string) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
+
+const fmtAmount = (a: string) => Number(a).toLocaleString('pl-PL', { maximumFractionDigits: 6 })
+
+function icon(addr: string) {
+  const t = tokenInfo(addr)
+  return t.icon
+    ? `<img class="ico" src="${esc(t.icon)}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ico ph',textContent:'${esc(t.symbol.slice(0, 1).toUpperCase())}'}))">`
+    : `<span class="ico ph">${esc(t.symbol.slice(0, 1).toUpperCase())}</span>`
 }
-let symbols = new Map<string, string>()
-const label = (addr: string) => symbols.get(addr) ?? sym(addr)
+
+/** Ikona + ilość + symbol, adres zasobu małym drukiem pod spodem. */
+function tok(addr: string, amount?: string) {
+  const t = tokenInfo(addr)
+  return `<span class="tok">${icon(addr)}<span><b>${amount ? fmtAmount(amount) + ' ' : ''}${esc(t.symbol)}</b><small title="${esc(addr)}">${esc(t.name && t.name !== t.symbol ? t.name + ' · ' : '')}${esc(short(addr))}</small></span></span>`
+}
 
 function timeLeft(ms: number) {
   const diff = ms - Date.now()
@@ -71,8 +89,8 @@ function timeLeft(ms: number) {
 }
 
 async function render() {
-  symbols = await getSymbols([])
   const myRider = riderIds[0]
+  renderForm()
 
   // Rynek
   const open = offers.filter((o) => o.status === 'Open' && o.expiresAt > Date.now())
@@ -83,8 +101,8 @@ async function render() {
           const mine = riderIds.includes(o.seller)
           return `<tr>
             <td>${o.id}${o.reservedBuyer ? ' 🔒' : ''}</td>
-            <td>${o.sellAmount} ${label(o.sellResource)}</td>
-            <td>${o.askAmount} ${label(o.askResource)}</td>
+            <td>${tok(o.sellResource, o.sellAmount)}</td>
+            <td>${tok(o.askResource, o.askAmount)}</td>
             <td>${timeLeft(o.expiresAt)}</td>
             <td>${mine ? '<span class="muted">Twoja</span>' : `<button data-accept="${o.id}" ${myRider ? '' : 'disabled title="Potrzebujesz Rider Badge"'}>Kup</button>`}</td>
           </tr>`
@@ -101,8 +119,8 @@ async function render() {
           const status = o.status === 'Open' ? (expired ? 'Wygasła' : 'Otwarta') : o.status === 'Filled' ? 'Zrealizowana' : 'Anulowana'
           return `<tr>
             <td>${o.id}</td>
-            <td>${o.sellAmount} ${label(o.sellResource)}</td>
-            <td>${o.askAmount} ${label(o.askResource)}</td>
+            <td>${tok(o.sellResource, o.sellAmount)}</td>
+            <td>${tok(o.askResource, o.askAmount)}</td>
             <td>${status}</td>
             <td>${o.status === 'Open' ? `<button data-cancel="${o.id}" data-seller="${o.seller}">${expired ? 'Odbierz aktywo' : 'Anuluj'}</button>` : ''}</td>
           </tr>`
@@ -118,6 +136,34 @@ async function render() {
       : 'Nie masz jeszcze Rider Badge. Wybij go, żeby handlować.'
   $<HTMLButtonElement>('#mint-badge').hidden = !!myRider
   $<HTMLButtonElement>('#open-create').disabled = !myRider
+}
+
+// ---------- Formularz: listy tokenów ----------
+function renderForm() {
+  const sellSel = $<HTMLSelectElement>('#sell')
+  const askSel = $<HTMLSelectElement>('#ask')
+  const prevSell = sellSel.value
+  const prevAsk = askSel.value
+  sellSel.innerHTML = balances.length
+    ? balances
+        .map((b) => `<option value="${esc(b.address)}">${esc(tokenInfo(b.address).symbol)} (masz ${fmtAmount(b.amount)})</option>`)
+        .join('')
+    : '<option value="">Połącz portfel, żeby zobaczyć swoje tokeny</option>'
+  const askList = [...new Set([...CONFIG.knownResources.map((r) => r.address), CONFIG.hardResource, ...balances.map((b) => b.address)])].filter(Boolean)
+  askSel.innerHTML =
+    askList.map((a) => `<option value="${esc(a)}">${esc(tokenInfo(a).symbol)}${tokenInfo(a).name && tokenInfo(a).name !== tokenInfo(a).symbol ? ' · ' + esc(tokenInfo(a).name) : ''}</option>`).join('') +
+    '<option value="custom">Inny token (wklej adres)…</option>'
+  if ([...sellSel.options].some((o) => o.value === prevSell)) sellSel.value = prevSell
+  if ([...askSel.options].some((o) => o.value === prevAsk)) askSel.value = prevAsk
+  updatePreviews()
+}
+
+function updatePreviews() {
+  const sell = $<HTMLSelectElement>('#sell').value
+  const ask = $<HTMLSelectElement>('#ask').value
+  $('#sell-preview').innerHTML = sell ? tok(sell) : ''
+  $('#ask-preview').innerHTML = ask && ask !== 'custom' ? tok(ask) : ''
+  $('#ask-custom-wrap').hidden = ask !== 'custom'
 }
 
 // ---------- Zdarzenia ----------
@@ -159,6 +205,8 @@ const dialog = $<HTMLDialogElement>('#create-dialog')
 const form = $<HTMLFormElement>('#create-form')
 $('#open-create').addEventListener('click', () => dialog.showModal())
 
+form.addEventListener('change', updatePreviews)
+
 form.addEventListener('input', () => {
   const f = new FormData(form)
   const amount = Number(f.get('sellAmount') || 0)
@@ -176,9 +224,9 @@ form.addEventListener('submit', (e) => {
     M.createOffer({
       account,
       riderId: riderIds[0],
-      sellResource: String(f.get('sellResource')).trim(),
+      sellResource: String(f.get('sell')),
       sellAmount: String(f.get('sellAmount')),
-      askResource: String(f.get('askResource')).trim(),
+      askResource: f.get('ask') === 'custom' ? String(f.get('askCustom')).trim() : String(f.get('ask')),
       askAmount: String(f.get('askAmount')),
       expiryHours: Number(f.get('expiry')) as 1 | 6 | 72,
       reservedBuyer: String(f.get('reserved') || '').trim() || undefined,
@@ -204,9 +252,6 @@ async function init() {
     console.error(e)
     toast('Nie udało się odczytać desku. Sprawdź adres komponentu w config.ts.')
   }
-  $('#known').innerHTML = [...CONFIG.knownResources, { symbol: 'HARD', address: CONFIG.hardResource }]
-    .map((r) => `<option value="${r.address}">${r.symbol}</option>`)
-    .join('')
   await refreshAll()
   setInterval(refreshAll, 20_000)
 }
