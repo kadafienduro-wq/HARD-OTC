@@ -28,7 +28,7 @@ jobs:
 
       - name: Cache Scrypto CLI
         id: cache-scrypto
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin
           key: radix-clis-1.3.0-rust-stable
@@ -40,6 +40,21 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           cargo +stable install --locked radix-clis@1.3.0
+
+      - name: Zapamietaj Scrypto CLI
+        if: steps.cache-scrypto.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin
+          key: radix-clis-1.3.0-rust-stable
+
+      - name: Wersje bibliotek zgodne z Rust 1.81
+        working-directory: scrypto
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo +stable generate-lockfile
 
       - name: Buduj kontrakt
         working-directory: scrypto
