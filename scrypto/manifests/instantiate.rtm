@@ -1,0 +1,14 @@
+# Wklej w Stokenet Developer Console -> Send Raw Transaction.
+# Podmień PACKAGE i ACCOUNT na swoje adresy (Stokenet: *_tdx_2_*).
+# Tworzy testowy HARD + desk. HARD i badge admina trafią na Twoje konto.
+
+CALL_FUNCTION
+    Address("package_tdx_2_PODMIEN")
+    "OtcDesk"
+    "instantiate_with_test_hard"
+;
+CALL_METHOD
+    Address("account_tdx_2_PODMIEN")
+    "deposit_batch"
+    Expression("ENTIRE_WORKTOP")
+;

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>HARD OTC — Stokenet</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">HARD OTC <span class="badge">TESTNET</span></div>
+      <radix-connect-button></radix-connect-button>
+    </header>
+    <p class="warn">Tylko aktywa testowe. Bez wartości pieniężnej. Eksperymentalny escrow.</p>
+
+    <nav>
+      <button data-tab="market" class="active">Rynek OTC</button>
+      <button data-tab="mine">Moje oferty</button>
+      <button data-tab="rider">Rider badge i HARD</button>
+    </nav>
+
+    <main>
+      <section id="tab-market">
+        <div class="row">
+          <h2>Dostępne oferty</h2>
+          <button id="refresh">Odśwież</button>
+          <button id="open-create" class="primary">+ Nowa oferta</button>
+        </div>
+        <p class="muted">Opłata: 1,5% łącznie (0,75% kupujący + 0,75% sprzedający). Lock 1000 HARD = 20% zniżki na Twoją połowę. Opłaty sieciowe w testowym XRD osobno.</p>
+        <table>
+          <thead><tr><th>#</th><th>Kupujący dostaje</th><th>Cena</th><th>Wygasa</th><th></th></tr></thead>
+          <tbody id="market-body"><tr><td colspan="5">Ładowanie…</td></tr></tbody>
+        </table>
+      </section>
+
+      <section id="tab-mine" hidden>
+        <h2>Moje oferty</h2>
+        <table>
+          <thead><tr><th>#</th><th>Sprzedaję</th><th>Za</th><th>Status</th><th></th></tr></thead>
+          <tbody id="mine-body"></tbody>
+        </table>
+      </section>
+
+      <section id="tab-rider" hidden>
+        <h2>Rider badge</h2>
+        <p id="rider-info" class="muted">Połącz portfel.</p>
+        <button id="mint-badge" class="primary">Wybij darmowy Rider Badge</button>
+        <h2>Lock HARD (rabat 20%)</h2>
+        <p class="muted">Blokada nie daje zysku i możesz ją wycofać w każdej chwili.</p>
+        <div class="row">
+          <input id="lock-amount" type="number" min="0" value="1000" />
+          <button id="lock-btn">Zablokuj HARD</button>
+          <button id="unlock-btn">Wypłać cały lock</button>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="create-dialog">
+      <form id="create-form" method="dialog">
+        <h2>Nowa oferta (escrow)</h2>
+        <label>Sprzedaję (adres zasobu)<input name="sellResource" list="known" required /></label>
+        <label>Ilość<input name="sellAmount" type="number" step="any" min="0" required /></label>
+        <label>Chcę w zamian (adres zasobu)<input name="askResource" list="known" required /></label>
+        <label>Cena (łącznie)<input name="askAmount" type="number" step="any" min="0" required /></label>
+        <label>Ważność
+          <select name="expiry"><option value="1">1 h</option><option value="6">6 h</option><option value="72" selected>72 h</option></select>
+        </label>
+        <label>Zarezerwowany kupujący (ID Rider Badge, opcjonalnie)<input name="reserved" placeholder="{xxxx-xxxx-…}" /></label>
+        <p class="muted">Warunki oferty są publiczne na ledgerze. Rezerwacja ogranicza, kto może przyjąć ofertę, ale jej nie ukrywa.</p>
+        <p id="fee-preview" class="muted"></p>
+        <div class="row">
+          <button value="cancel" formnovalidate>Anuluj</button>
+          <button id="submit-offer" class="primary" value="ok">Podpisz w Radix Wallet</button>
+        </div>
+      </form>
+    </dialog>
+    <datalist id="known"></datalist>
+
+    <div id="toast" hidden></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
