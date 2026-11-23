@@ -1,0 +1,73 @@
+name: Buduj HARD OTC
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  kontrakt:
+    name: Kontrakt Scrypto (wasm + rpd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust 1.81.0 + wasm
+        run: |
+          rustup toolchain install 1.81.0 --profile minimal --target wasm32-unknown-unknown
+          sudo apt-get update && sudo apt-get install -y clang llvm
+
+      - name: Cache Scrypto CLI
+        id: cache-scrypto
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: radix-clis-1.3.0-rust-1.81.0
+
+      - name: Instaluj Scrypto CLI
+        if: steps.cache-scrypto.outputs.cache-hit != 'true'
+        run: cargo +1.81.0 install --locked radix-clis@1.3.0
+
+      - name: Buduj kontrakt
+        working-directory: scrypto
+        run: scrypto build
+
+      - name: Wynik do pobrania
+        uses: actions/upload-artifact@v4
+        with:
+          name: kontrakt-do-wgrania
+          path: |
+            scrypto/target/wasm32-unknown-unknown/release/hard_otc.wasm
+            scrypto/target/wasm32-unknown-unknown/release/hard_otc.rpd
+
+  strona:
+    name: Strona (GitHub Pages)
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Buduj front
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4
