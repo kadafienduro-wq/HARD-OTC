@@ -1,7 +1,7 @@
 import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
 import { CONFIG } from './config'
 import * as M from './manifests'
-import { getOffers, getRiderBadges, getSymbols, short, type OfferView } from './gateway'
+import { getOffers, getRiderBadges, getSymbols, loadDeskInfo, short, type OfferView } from './gateway'
 
 // ---------- Stan ----------
 let account: string | null = null
@@ -157,9 +157,6 @@ $('#unlock-btn').addEventListener('click', () => {
 // Formularz oferty
 const dialog = $<HTMLDialogElement>('#create-dialog')
 const form = $<HTMLFormElement>('#create-form')
-$('#known').innerHTML = [...CONFIG.knownResources, { symbol: 'HARD', address: CONFIG.hardResource }]
-  .map((r) => `<option value="${r.address}">${r.symbol}</option>`)
-  .join('')
 $('#open-create').addEventListener('click', () => dialog.showModal())
 
 form.addEventListener('input', () => {
@@ -200,5 +197,17 @@ function toast(msg: string) {
   toastTimer = window.setTimeout(() => (t.hidden = true), 6000)
 }
 
-refreshAll()
-setInterval(refreshAll, 20_000)
+async function init() {
+  try {
+    await loadDeskInfo()
+  } catch (e) {
+    console.error(e)
+    toast('Nie udało się odczytać desku. Sprawdź adres komponentu w config.ts.')
+  }
+  $('#known').innerHTML = [...CONFIG.knownResources, { symbol: 'HARD', address: CONFIG.hardResource }]
+    .map((r) => `<option value="${r.address}">${r.symbol}</option>`)
+    .join('')
+  await refreshAll()
+  setInterval(refreshAll, 20_000)
+}
+init()

@@ -53,6 +53,14 @@ export async function getRiderBadges(account: string): Promise<string[]> {
   return rider.vaults.items.flatMap((v: any) => v.items ?? [])
 }
 
+/** Odczytuje z desku adresy Rider Badge i HARD, żeby nie trzeba ich było wpisywać ręcznie. */
+export async function loadDeskInfo() {
+  const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
+  const state = decode(r.items[0].details.state)
+  CONFIG.riderBadgeResource = state.rider_badge
+  CONFIG.hardResource = state.hard_resource
+}
+
 export async function getOffers(): Promise<OfferView[]> {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
   const state = decode(r.items[0].details.state)

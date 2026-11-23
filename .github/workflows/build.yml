@@ -81,11 +81,8 @@ jobs:
             scrypto/target/wasm32-unknown-unknown/release/hard_otc.rpd
 
   strona:
-    name: Strona (GitHub Pages)
+    name: Strona (budowa)
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -100,5 +97,14 @@ jobs:
       - uses: actions/upload-pages-artifact@v4
         with:
           path: frontend/dist
+
+  publikacja:
+    name: Strona (publikacja)
+    needs: strona
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v4
