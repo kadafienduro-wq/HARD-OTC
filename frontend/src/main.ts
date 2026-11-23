@@ -173,6 +173,7 @@ function renderTiers() {
 
 function renderTreasury() {
   $('#burned').textContent = `${nf(burned)} HARD`
+  $('#listing-fee').textContent = `${nf(desk.listingFee)} HARD`
   $('#burn-share').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}% opłat w HARD` : 'wyłączone'
   $('#tiers-short').textContent = desk.tiers.map((t) => `${nf(t.threshold)}: −${pct(t.multiplier)}`).join(' · ') || '–'
   $('#fees-body').innerHTML = desk.feesCollected.length
@@ -255,7 +256,7 @@ form.addEventListener('input', () => {
   const price = Number(f.get('askAmount') || 0)
   const mine = desk.feePerSide * multiplierFor(myLocked)
   $('#fee-preview').textContent = price
-    ? `Twoja opłata (${(mine * 100).toFixed(2)}%): ${(price * mine).toFixed(4)} z ceny. Kupujący zapłaci do ${(amount * desk.feePerSide).toFixed(4)} z aktywa (mniej, jeśli ma lock HARD).`
+    ? `Opłata za ogłoszenie: ${nf(desk.listingFee)} HARD (nie wraca przy anulowaniu). ` + `Twoja opłata (${(mine * 100).toFixed(2)}%): ${(price * mine).toFixed(4)} z ceny. Kupujący zapłaci do ${(amount * desk.feePerSide).toFixed(4)} z aktywa (mniej, jeśli ma lock HARD).`
     : ''
 })
 
@@ -273,6 +274,8 @@ form.addEventListener('submit', (e) => {
       askAmount: String(f.get('askAmount')),
       expiryHours: Number(f.get('expiry')) as 1 | 6 | 72,
       reservedBuyer: String(f.get('reserved') || '').trim() || undefined,
+      listingFee: desk.listingFee > 0 ? String(desk.listingFee) : undefined,
+      v2: desk.v2,
     }),
     'Oferta utworzona, aktywo zablokowane w escrow',
   )

@@ -9,6 +9,8 @@
 //!    >= 1 000 HARD: -20%, >= 10 000: -40%, >= 50 000: -60% (na swoją połowę opłaty).
 //! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Opcjonalnie admin może
 //!    włączyć spalanie części opłat pobranych w HARD (domyślnie 0% = wyłączone).
+//! 7. Wystawienie oferty kosztuje opłatę w HARD (domyślnie 1000 HARD, ustawia admin).
+//!    Trafia do skarbca i nie wraca przy anulowaniu.
 //! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
 //!
 //! v1 obsługuje zasoby fungible po obu stronach (tokeny, LSU, LP).
@@ -97,6 +99,7 @@ mod hard_otc {
             withdraw_treasury => restrict_to: [OWNER];
             set_paused => restrict_to: [OWNER];
             set_burn_share => restrict_to: [OWNER];
+            set_listing_fee => restrict_to: [OWNER];
         }
     }
 
@@ -108,6 +111,8 @@ mod hard_otc {
         fee_rate_per_side: Decimal,
         /// jaka część opłat w HARD jest spalana (zamykana na zawsze)
         hard_burn_share: Decimal,
+        /// opłata w HARD za wystawienie oferty
+        listing_fee_hard: Decimal,
         next_offer_id: u64,
         offers: KeyValueStore<u64, Offer>,
         escrow: KeyValueStore<u64, Vault>,
@@ -156,6 +161,7 @@ mod hard_otc {
                 ],
                 fee_rate_per_side: dec!("0.0075"),
                 hard_burn_share: Decimal::ZERO,
+                listing_fee_hard: dec!("1000"),
                 next_offer_id: 1,
                 offers: KeyValueStore::new(),
                 escrow: KeyValueStore::new(),
@@ -215,9 +221,18 @@ mod hard_otc {
             expiry_hours: u8,
             reserved_buyer: Option<NonFungibleLocalId>,
             seller_account: Global<Account>,
-        ) -> u64 {
+            mut listing_fee: Bucket,
+        ) -> (u64, Bucket) {
             assert!(!self.paused, "Desk is paused");
             let seller = self.check_rider(rider);
+
+            // Opłata za ogłoszenie w HARD -> skarbiec. Reszta wraca do sprzedającego.
+            assert!(listing_fee.resource_address() == self.hard_resource, "Listing fee must be paid in HARD");
+            assert!(listing_fee.amount() >= self.listing_fee_hard, "Listing fee too small");
+            if self.listing_fee_hard > Decimal::ZERO {
+                let fee = listing_fee.take(self.listing_fee_hard);
+                self.collect_fee(fee);
+            }
 
             let sell_resource = sell.resource_address();
             let sell_amount = sell.amount();
@@ -274,7 +289,7 @@ mod hard_otc {
                 reserved,
             });
 
-            offer_id
+            (offer_id, listing_fee)
         }
 
         /// Atomowe rozliczenie. Zwraca (kupione aktywo minus opłata kupującego, reszta z płatności).
@@ -403,6 +418,12 @@ mod hard_otc {
 
         pub fn set_paused(&mut self, paused: bool) {
             self.paused = paused;
+        }
+
+        /// Opłata w HARD za wystawienie oferty (0 = darmowe wystawianie).
+        pub fn set_listing_fee(&mut self, amount: Decimal) {
+            assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
+            self.listing_fee_hard = amount;
         }
 
         /// Ile z opłat pobranych w HARD zamykać na zawsze: 0 = wyłączone, 0.5 = połowa, 1 = całość.

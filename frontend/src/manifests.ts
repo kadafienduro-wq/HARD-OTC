@@ -23,13 +23,18 @@ export function createOffer(p: {
   askAmount: string
   expiryHours: 1 | 6 | 72
   reservedBuyer?: string
+  listingFee?: string
+  v2?: boolean
 }) {
   const reserved = p.reservedBuyer
     ? `Enum<1u8>(NonFungibleLocalId("${p.reservedBuyer}"))`
     : 'Enum<0u8>()'
+  const fee = p.listingFee && Number(p.listingFee) > 0 ? p.listingFee : '0'
   return `
 CALL_METHOD Address("${p.account}") "withdraw" Address("${p.sellResource}") Decimal("${p.sellAmount}");
-TAKE_ALL_FROM_WORKTOP Address("${p.sellResource}") Bucket("sell");${riderProof(p.account, p.riderId)}
+TAKE_FROM_WORKTOP Address("${p.sellResource}") Decimal("${p.sellAmount}") Bucket("sell");
+${!p.v2 ? '' : fee !== '0' ? `CALL_METHOD Address("${p.account}") "withdraw" Address("${CONFIG.hardResource}") Decimal("${fee}");
+` : ''}${p.v2 ? `TAKE_FROM_WORKTOP Address("${CONFIG.hardResource}") Decimal("${fee}") Bucket("listing");` : ''}${riderProof(p.account, p.riderId)}
 CALL_METHOD Address("${desk()}") "create_offer"
   Proof("rider")
   Bucket("sell")
@@ -37,7 +42,7 @@ CALL_METHOD Address("${desk()}") "create_offer"
   Decimal("${p.askAmount}")
   ${p.expiryHours}u8
   ${reserved}
-  Address("${p.account}");${depositAll(p.account)}`
+  Address("${p.account}")${p.v2 ? '\n  Bucket("listing")' : ''};${depositAll(p.account)}`
 }
 
 export const acceptOffer = (account: string, riderId: string, offerId: string, askResource: string, askAmount: string) => `

@@ -60,11 +60,13 @@ export type DeskInfo = {
   tiers: { threshold: number; multiplier: number }[]
   feePerSide: number
   burnShare: number
+  listingFee: number
+  v2: boolean
   feesCollected: { address: string; amount: string }[]
   burnedVault: string
   hardLocksKvs: string
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, feesCollected: [], burnedVault: '', hardLocksKvs: '' }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '' }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -75,6 +77,8 @@ export async function loadDeskInfo() {
     tiers: (state.discount_tiers ?? []).map((t: any) => ({ threshold: Number(t[0]), multiplier: Number(t[1]) })),
     feePerSide: Number(state.fee_rate_per_side ?? 0.0075),
     burnShare: Number(state.hard_burn_share ?? 0),
+    listingFee: Number(state.listing_fee_hard ?? 0),
+    v2: state.listing_fee_hard !== undefined,
     feesCollected: (state.fees_collected ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
     burnedVault: state.burned_hard ?? '',
     hardLocksKvs: state.hard_locks ?? '',
