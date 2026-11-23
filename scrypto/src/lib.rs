@@ -5,8 +5,11 @@
 //! 2. Sprzedający blokuje aktywo w escrow (`create_offer`) i podaje cenę.
 //! 3. Kupujący płaci (`accept_offer`) — w jednej, atomowej transakcji
 //!    kupujący dostaje aktywo, a sprzedający zapłatę na swoje konto.
-//! 4. Opłata: 0,75% z każdej strony (1,5% łącznie). Kto ma zablokowane
-//!    >= 1000 HARD, ma 20% zniżki na swoją połowę opłaty.
+//! 4. Opłata: 0,75% z każdej strony (1,5% łącznie). Progi rabatowe za lock HARD:
+//!    >= 1 000 HARD: -20%, >= 10 000: -40%, >= 50 000: -60% (na swoją połowę opłaty).
+//! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Z opłat pobranych
+//!    w HARD połowa jest zamykana na zawsze w kontrakcie (spalenie z obiegu).
+//! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
 //!
 //! v1 obsługuje zasoby fungible po obu stronach (tokeny, LSU, LP).
 //! NFT (pozycje) — w kolejnej wersji.
@@ -66,13 +69,20 @@ pub struct OfferCancelledEvent {
 }
 
 #[derive(ScryptoSbor, ScryptoEvent)]
+pub struct FeeCollectedEvent {
+    pub resource: ResourceAddress,
+    pub to_treasury: Decimal,
+    pub burned: Decimal,
+}
+
+#[derive(ScryptoSbor, ScryptoEvent)]
 pub struct HardLockChangedEvent {
     pub rider: NonFungibleLocalId,
     pub locked_total: Decimal,
 }
 
 #[blueprint]
-#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, HardLockChangedEvent)]
+#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, HardLockChangedEvent, FeeCollectedEvent)]
 mod hard_otc {
     enable_method_auth! {
         methods {
@@ -84,7 +94,7 @@ mod hard_otc {
             unlock_hard => PUBLIC;
             get_offer => PUBLIC;
             quote_fee => PUBLIC;
-            withdraw_fees => restrict_to: [OWNER];
+            withdraw_treasury => restrict_to: [OWNER];
             set_paused => restrict_to: [OWNER];
         }
     }
@@ -92,13 +102,19 @@ mod hard_otc {
     struct OtcDesk {
         rider_badge: NonFungibleResourceManager,
         hard_resource: ResourceAddress,
-        hard_discount_threshold: Decimal,
+        /// (próg zablokowanych HARD, mnożnik opłaty) rosnąco po progu
+        discount_tiers: Vec<(Decimal, Decimal)>,
         fee_rate_per_side: Decimal,
-        discount_multiplier: Decimal,
+        /// jaka część opłat w HARD jest spalana (zamykana na zawsze)
+        hard_burn_share: Decimal,
         next_offer_id: u64,
         offers: KeyValueStore<u64, Offer>,
         escrow: KeyValueStore<u64, Vault>,
-        fees: KeyValueStore<ResourceAddress, Vault>,
+        treasury: KeyValueStore<ResourceAddress, Vault>,
+        /// łącznie zarobione opłaty (do przejrzystości na stronie)
+        fees_collected: IndexMap<ResourceAddress, Decimal>,
+        /// HARD zamknięte na zawsze. Nie ma metody, która je wypłaca.
+        burned_hard: Vault,
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
         paused: bool,
     }
@@ -132,13 +148,19 @@ mod hard_otc {
             let component = Self {
                 rider_badge,
                 hard_resource,
-                hard_discount_threshold: dec!("1000"),
+                discount_tiers: vec![
+                    (dec!("1000"), dec!("0.8")),
+                    (dec!("10000"), dec!("0.6")),
+                    (dec!("50000"), dec!("0.4")),
+                ],
                 fee_rate_per_side: dec!("0.0075"),
-                discount_multiplier: dec!("0.8"),
+                hard_burn_share: dec!("0.5"),
                 next_offer_id: 1,
                 offers: KeyValueStore::new(),
                 escrow: KeyValueStore::new(),
-                fees: KeyValueStore::new(),
+                treasury: KeyValueStore::new(),
+                fees_collected: IndexMap::new(),
+                burned_hard: Vault::new(hard_resource),
                 hard_locks: KeyValueStore::new(),
                 paused: false,
             }
@@ -208,6 +230,12 @@ mod hard_otc {
                 "Expiry must be 1, 6 or 72 hours"
             );
             Self::assert_fits_divisibility(ask_resource, ask_amount);
+            if reserved_buyer.is_some() {
+                assert!(
+                    self.locked_amount(&seller) >= self.discount_tiers[0].0,
+                    "Reserved offers require at least 1000 HARD locked"
+                );
+            }
 
             let now = Clock::current_time_rounded_to_seconds();
             let expires_at =
@@ -364,10 +392,11 @@ mod hard_otc {
 
         // ---------- Admin ----------
 
-        pub fn withdraw_fees(&mut self, resource: ResourceAddress) -> Bucket {
-            self.fees
+        /// Wypłata ze skarbca (np. na buyback HARD albo płynność na Ociswap).
+        pub fn withdraw_treasury(&mut self, resource: ResourceAddress) -> Bucket {
+            self.treasury
                 .get_mut(&resource)
-                .expect("No fees in this resource")
+                .expect("Nothing in treasury for this resource")
                 .take_all()
         }
 
@@ -392,21 +421,51 @@ mod hard_otc {
         }
 
         fn fee_for(&self, rider: &NonFungibleLocalId, amount: Decimal) -> Decimal {
-            let mut rate = self.fee_rate_per_side;
-            if self.locked_amount(rider) >= self.hard_discount_threshold {
-                rate = rate.checked_mul(self.discount_multiplier).unwrap();
+            let locked = self.locked_amount(rider);
+            let mut multiplier = Decimal::ONE;
+            for (threshold, m) in self.discount_tiers.iter() {
+                if locked >= *threshold {
+                    multiplier = *m;
+                }
             }
-            amount.checked_mul(rate).unwrap()
+            amount
+                .checked_mul(self.fee_rate_per_side)
+                .unwrap()
+                .checked_mul(multiplier)
+                .unwrap()
         }
 
-        fn collect_fee(&mut self, fee: Bucket) {
+        fn collect_fee(&mut self, mut fee: Bucket) {
             let addr = fee.resource_address();
-            let exists = self.fees.get(&addr).is_some();
-            if exists {
-                self.fees.get_mut(&addr).unwrap().put(fee);
-            } else {
-                self.fees.insert(addr, Vault::with_bucket(fee));
+            let total = fee.amount();
+
+            let mut burned = Decimal::ZERO;
+            if addr == self.hard_resource {
+                let burn_amount = total.checked_mul(self.hard_burn_share).unwrap();
+                let burn = fee.take_advanced(
+                    burn_amount,
+                    WithdrawStrategy::Rounded(RoundingMode::ToZero),
+                );
+                burned = burn.amount();
+                self.burned_hard.put(burn);
             }
+            let to_treasury = fee.amount();
+
+            let exists = self.treasury.get(&addr).is_some();
+            if exists {
+                self.treasury.get_mut(&addr).unwrap().put(fee);
+            } else {
+                self.treasury.insert(addr, Vault::with_bucket(fee));
+            }
+
+            let entry = self.fees_collected.entry(addr).or_insert(Decimal::ZERO);
+            *entry = entry.checked_add(total).unwrap();
+
+            Runtime::emit_event(FeeCollectedEvent {
+                resource: addr,
+                to_treasury,
+                burned,
+            });
         }
 
         fn assert_fits_divisibility(resource: ResourceAddress, amount: Decimal) {
