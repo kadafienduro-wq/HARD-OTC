@@ -89,7 +89,7 @@ export async function getOffers(): Promise<OfferView[]> {
         sellAmount: o.sell_amount,
         askResource: o.ask_resource,
         askAmount: o.ask_amount,
-        expiresAt: Number(o.expires_at.seconds_since_unix_epoch) * 1000,
+        expiresAt: Number(typeof o.expires_at === 'object' ? o.expires_at.seconds_since_unix_epoch : o.expires_at) * 1000,
         reservedBuyer: reserved.variant === 'Some' || reserved.variant === '1' ? reserved.fields[0] : null,
         status: o.status.variant,
       } as OfferView
