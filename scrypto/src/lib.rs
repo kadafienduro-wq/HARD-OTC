@@ -7,8 +7,8 @@
 //!    kupujący dostaje aktywo, a sprzedający zapłatę na swoje konto.
 //! 4. Opłata: 0,75% z każdej strony (1,5% łącznie). Progi rabatowe za lock HARD:
 //!    >= 1 000 HARD: -20%, >= 10 000: -40%, >= 50 000: -60% (na swoją połowę opłaty).
-//! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Z opłat pobranych
-//!    w HARD połowa jest zamykana na zawsze w kontrakcie (spalenie z obiegu).
+//! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Opcjonalnie admin może
+//!    włączyć spalanie części opłat pobranych w HARD (domyślnie 0% = wyłączone).
 //! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
 //!
 //! v1 obsługuje zasoby fungible po obu stronach (tokeny, LSU, LP).
@@ -96,6 +96,7 @@ mod hard_otc {
             quote_fee => PUBLIC;
             withdraw_treasury => restrict_to: [OWNER];
             set_paused => restrict_to: [OWNER];
+            set_burn_share => restrict_to: [OWNER];
         }
     }
 
@@ -154,7 +155,7 @@ mod hard_otc {
                     (dec!("50000"), dec!("0.4")),
                 ],
                 fee_rate_per_side: dec!("0.0075"),
-                hard_burn_share: dec!("0.5"),
+                hard_burn_share: Decimal::ZERO,
                 next_offer_id: 1,
                 offers: KeyValueStore::new(),
                 escrow: KeyValueStore::new(),
@@ -404,6 +405,12 @@ mod hard_otc {
             self.paused = paused;
         }
 
+        /// Ile z opłat pobranych w HARD zamykać na zawsze: 0 = wyłączone, 0.5 = połowa, 1 = całość.
+        pub fn set_burn_share(&mut self, share: Decimal) {
+            assert!(share >= Decimal::ZERO && share <= Decimal::ONE, "Share must be between 0 and 1");
+            self.hard_burn_share = share;
+        }
+
         // ---------- Pomocnicze ----------
 
         fn check_rider(&self, rider: Proof) -> NonFungibleLocalId {
@@ -440,7 +447,7 @@ mod hard_otc {
             let total = fee.amount();
 
             let mut burned = Decimal::ZERO;
-            if addr == self.hard_resource {
+            if addr == self.hard_resource && self.hard_burn_share > Decimal::ZERO {
                 let burn_amount = total.checked_mul(self.hard_burn_share).unwrap();
                 let burn = fee.take_advanced(
                     burn_amount,

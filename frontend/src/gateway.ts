@@ -23,6 +23,8 @@ export function decode(v: any): any {
       return { variant: v.variant_name ?? String(v.variant_id), fields: (v.fields ?? []).map(decode) }
     case 'Array':
       return (v.elements ?? []).map(decode)
+    case 'Map':
+      return (v.entries ?? []).map((e: any) => [decode(e.key), decode(e.value)])
     default:
       return v.value
   }
@@ -54,11 +56,57 @@ export async function getRiderBadges(account: string): Promise<string[]> {
 }
 
 /** Odczytuje z desku adresy Rider Badge i HARD, żeby nie trzeba ich było wpisywać ręcznie. */
+export type DeskInfo = {
+  tiers: { threshold: number; multiplier: number }[]
+  feePerSide: number
+  burnShare: number
+  feesCollected: { address: string; amount: string }[]
+  burnedVault: string
+  hardLocksKvs: string
+}
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, feesCollected: [], burnedVault: '', hardLocksKvs: '' }
+
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
   const state = decode(r.items[0].details.state)
   CONFIG.riderBadgeResource = state.rider_badge
   CONFIG.hardResource = state.hard_resource
+  desk = {
+    tiers: (state.discount_tiers ?? []).map((t: any) => ({ threshold: Number(t[0]), multiplier: Number(t[1]) })),
+    feePerSide: Number(state.fee_rate_per_side ?? 0.0075),
+    burnShare: Number(state.hard_burn_share ?? 0),
+    feesCollected: (state.fees_collected ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
+    burnedVault: state.burned_hard ?? '',
+    hardLocksKvs: state.hard_locks ?? '',
+  }
+  // Stary desk (v1) miał jeden próg
+  if (!desk.tiers.length && state.hard_discount_threshold) {
+    desk.tiers = [{ threshold: Number(state.hard_discount_threshold), multiplier: Number(state.discount_multiplier) }]
+  }
+}
+
+export async function getVaultAmount(vault: string): Promise<number> {
+  if (!vault) return 0
+  const r = await post('/state/entity/details', { addresses: [vault] })
+  return Number(r.items?.[0]?.details?.balance?.amount ?? 0)
+}
+
+/** Ile HARD ma zablokowane dany rider. */
+export async function getLocked(riderId: string): Promise<number> {
+  if (!desk.hardLocksKvs || !riderId) return 0
+  const data = await post('/state/key-value-store/data', {
+    key_value_store_address: desk.hardLocksKvs,
+    keys: [{ key_json: { kind: 'NonFungibleLocalId', value: riderId } }],
+  })
+  const vault = data.entries?.[0]?.value?.programmatic_json?.value
+  return vault ? getVaultAmount(vault) : 0
+}
+
+/** Mnożnik opłaty dla danej ilości zablokowanych HARD. */
+export function multiplierFor(locked: number) {
+  let m = 1
+  for (const t of desk.tiers) if (locked >= t.threshold) m = t.multiplier
+  return m
 }
 
 export async function getOffers(): Promise<OfferView[]> {

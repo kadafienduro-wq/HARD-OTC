@@ -30,6 +30,7 @@
       <button data-tab="market" class="active">Rynek OTC</button>
       <button data-tab="mine">Moje oferty</button>
       <button data-tab="rider">Rider badge i HARD</button>
+      <button data-tab="treasury">Skarbiec</button>
     </nav>
 
     <main>
@@ -58,13 +59,30 @@
         <h2>Rider badge</h2>
         <p id="rider-info" class="muted">Połącz portfel.</p>
         <button id="mint-badge" class="primary">Wybij darmowy Rider Badge</button>
-        <h2>Lock HARD (rabat 20%)</h2>
-        <p class="muted">Blokada nie daje zysku i możesz ją wycofać w każdej chwili.</p>
+        <h2 style="margin-top:24px">Lock HARD: niższe opłaty</h2>
+        <div id="tier-box"></div>
+        <p class="muted">Blokada nie daje zysku i możesz ją wycofać w każdej chwili. Od 1 000 HARD odblokowujesz też oferty zarezerwowane dla konkretnego kupującego.</p>
         <div class="row">
           <input id="lock-amount" type="number" min="0" value="1000" />
           <button id="lock-btn">Zablokuj HARD</button>
           <button id="unlock-btn">Wypłać cały lock</button>
         </div>
+      </section>
+
+      <section id="tab-treasury" hidden>
+        <h2>Skarbiec desku</h2>
+        <p class="muted">Wszystkie opłaty z transakcji trafiają do skarbca. Środki ze skarbca idą na skup HARD na Ociswap i na płynność w puli HARD.</p>
+        <div class="stats">
+          <div class="stat"><span>Spalanie HARD</span><b id="burn-share">–</b></div>
+          <div class="stat"><span>HARD spalone na zawsze</span><b id="burned">–</b></div>
+          <div class="stat"><span>Próg rabatów</span><b id="tiers-short">–</b></div>
+        </div>
+        <h2 style="margin-top:20px;font-size:20px">Zarobione opłaty (łącznie)</h2>
+        <table>
+          <thead><tr><th>Token</th><th>Zarobione</th></tr></thead>
+          <tbody id="fees-body"></tbody>
+        </table>
+        <p class="muted">Dane są czytane na żywo z kontraktu na Stokenet.</p>
       </section>
     </main>
 
@@ -81,7 +99,8 @@
         <label>Ważność
           <select name="expiry"><option value="1">1 h</option><option value="6">6 h</option><option value="72" selected>72 h</option></select>
         </label>
-        <label>Zarezerwowany kupujący (ID Rider Badge, opcjonalnie)<input name="reserved" placeholder="{xxxx-xxxx-…}" /></label>
+        <label>Zarezerwowany kupujący (ID Rider Badge, opcjonalnie)<input name="reserved" id="reserved" placeholder="{xxxx-xxxx-…}" /></label>
+        <p id="reserved-note" class="muted" hidden>Oferty zarezerwowane są dla holderów: zablokuj min. 1 000 HARD.</p>
         <p class="muted">Warunki oferty są publiczne na ledgerze. Rezerwacja ogranicza, kto może przyjąć ofertę, ale jej nie ukrywa.</p>
         <p id="fee-preview" class="muted"></p>
         <div class="row">

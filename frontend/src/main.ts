@@ -1,13 +1,15 @@
 import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
 import { CONFIG } from './config'
 import * as M from './manifests'
-import { getBalances, getOffers, getRiderBadges, getTokens, loadDeskInfo, short, tokenInfo, type OfferView } from './gateway'
+import { desk, getBalances, getLocked, getOffers, getRiderBadges, getTokens, getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView } from './gateway'
 
 // ---------- Stan ----------
 let account: string | null = null
 let riderIds: string[] = []
 let offers: OfferView[] = []
 let balances: { address: string; amount: string }[] = []
+let myLocked = 0
+let burned = 0
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
 
@@ -45,13 +47,17 @@ async function refreshRider() {
 
 async function refreshAll() {
   try {
+    await loadDeskInfo().catch(() => {})
     offers = await getOffers()
+    myLocked = riderIds[0] ? await getLocked(riderIds[0]).catch(() => 0) : 0
+    burned = await getVaultAmount(desk.burnedVault).catch(() => 0)
     balances = account ? await getBalances(account).catch(() => []) : []
     await getTokens([
       ...offers.flatMap((o) => [o.sellResource, o.askResource]),
       ...balances.map((b) => b.address),
       ...CONFIG.knownResources.map((r) => r.address),
       CONFIG.hardResource,
+      ...desk.feesCollected.map((f) => f.address),
     ])
   } catch (e) {
     console.error(e)
@@ -129,6 +135,8 @@ async function render() {
     : '<tr><td colspan="5" class="muted">Nie masz jeszcze ofert.</td></tr>'
 
   // Rider
+  renderTiers()
+  renderTreasury()
   $('#rider-info').textContent = !account
     ? 'Połącz portfel.'
     : myRider
@@ -136,6 +144,40 @@ async function render() {
       : 'Nie masz jeszcze Rider Badge. Wybij go, żeby handlować.'
   $<HTMLButtonElement>('#mint-badge').hidden = !!myRider
   $<HTMLButtonElement>('#open-create').disabled = !myRider
+}
+
+// ---------- Poziomy rabatów i skarbiec ----------
+const pct = (m: number) => `${Math.round((1 - m) * 100)}%`
+const nf = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 2 })
+
+function renderTiers() {
+  const tiers = desk.tiers
+  const current = [...tiers].reverse().find((t) => myLocked >= t.threshold)
+  const next = tiers.find((t) => myLocked < t.threshold)
+  const progress = next ? Math.min(100, (myLocked / next.threshold) * 100) : 100
+  $('#tier-box').innerHTML = `
+    <div class="stats">
+      <div class="stat"><span>Twój lock</span><b>${nf(myLocked)} HARD</b></div>
+      <div class="stat"><span>Twój rabat na opłatę</span><b class="${current ? 'red' : ''}">${current ? '−' + pct(current.multiplier) : 'brak'}</b></div>
+      <div class="stat"><span>Twoja opłata</span><b>${(desk.feePerSide * multiplierFor(myLocked) * 100).toFixed(2)}%</b></div>
+    </div>
+    ${next ? `<div class="meter"><i style="width:${progress}%"></i></div><p class="muted">Do rabatu −${pct(next.multiplier)} brakuje ${nf(next.threshold - myLocked)} HARD.</p>` : '<p class="muted">Masz najwyższy poziom rabatu.</p>'}
+    <table class="tiers"><thead><tr><th>Lock HARD</th><th>Rabat</th><th>Opłata za Twoją stronę</th></tr></thead><tbody>
+      <tr><td>0</td><td>–</td><td>${(desk.feePerSide * 100).toFixed(2)}%</td></tr>
+      ${tiers.map((t) => `<tr class="${current === t ? 'on' : ''}"><td>${nf(t.threshold)}+</td><td>−${pct(t.multiplier)}</td><td>${(desk.feePerSide * t.multiplier * 100).toFixed(2)}%</td></tr>`).join('')}
+    </tbody></table>`
+  const canReserve = desk.tiers.length > 0 && myLocked >= desk.tiers[0].threshold
+  $<HTMLInputElement>('#reserved').disabled = !canReserve
+  $('#reserved-note').hidden = canReserve
+}
+
+function renderTreasury() {
+  $('#burned').textContent = `${nf(burned)} HARD`
+  $('#burn-share').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}% opłat w HARD` : 'wyłączone'
+  $('#tiers-short').textContent = desk.tiers.map((t) => `${nf(t.threshold)}: −${pct(t.multiplier)}`).join(' · ') || '–'
+  $('#fees-body').innerHTML = desk.feesCollected.length
+    ? desk.feesCollected.map((f) => `<tr><td>${tok(f.address)}</td><td>${fmtAmount(f.amount)}</td></tr>`).join('')
+    : '<tr><td colspan="2" class="muted">Jeszcze brak opłat. Pierwsza transakcja je zasili.</td></tr>'
 }
 
 // ---------- Formularz: listy tokenów ----------
@@ -171,7 +213,7 @@ document.querySelectorAll<HTMLButtonElement>('nav button').forEach((btn) =>
   btn.addEventListener('click', () => {
     document.querySelectorAll('nav button').forEach((b) => b.classList.remove('active'))
     btn.classList.add('active')
-    for (const t of ['market', 'mine', 'rider']) $(`#tab-${t}`).hidden = t !== btn.dataset.tab
+    for (const t of ['market', 'mine', 'rider', 'treasury']) $(`#tab-${t}`).hidden = t !== btn.dataset.tab
   }),
 )
 
@@ -211,8 +253,9 @@ form.addEventListener('input', () => {
   const f = new FormData(form)
   const amount = Number(f.get('sellAmount') || 0)
   const price = Number(f.get('askAmount') || 0)
+  const mine = desk.feePerSide * multiplierFor(myLocked)
   $('#fee-preview').textContent = price
-    ? `Przed rabatem: Ty zapłacisz ${(price * CONFIG.feePerSide).toFixed(4)} z ceny, kupujący ${(amount * CONFIG.feePerSide).toFixed(4)} z aktywa.`
+    ? `Twoja opłata (${(mine * 100).toFixed(2)}%): ${(price * mine).toFixed(4)} z ceny. Kupujący zapłaci do ${(amount * desk.feePerSide).toFixed(4)} z aktywa (mniej, jeśli ma lock HARD).`
     : ''
 })
 
