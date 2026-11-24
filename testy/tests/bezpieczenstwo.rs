@@ -61,7 +61,7 @@ impl Env {
                 )
                 .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
                 .build(),
-            vec![],
+            vec![NonFungibleGlobalId::from_public_key(&admin.pk)],
         );
         let hard = r.expect_commit_success().new_resource_addresses()[0];
 
@@ -71,7 +71,7 @@ impl Env {
                 .call_function(package, "OtcDesk", "instantiate", manifest_args!(hard))
                 .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
                 .build(),
-            vec![],
+            vec![NonFungibleGlobalId::from_public_key(&admin.pk)],
         );
         let commit = r.expect_commit_success();
         let desk = commit.new_component_addresses()[0];
@@ -101,7 +101,7 @@ impl Env {
                     .call_method(desk, "mint_rider_badge", manifest_args!())
                     .deposit_batch(u.account, ManifestExpression::EntireWorktop)
                     .build(),
-                vec![],
+                vec![NonFungibleGlobalId::from_public_key(&u.pk)],
             );
             r.expect_commit_success();
         }
@@ -362,7 +362,7 @@ fn falszywe_lsu_odrzucone() {
             )
             .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
             .build(),
-        vec![],
+        signer(&alice),
     );
     let fake = r.expect_commit_success().new_resource_addresses()[0];
     let m = ManifestBuilder::new()
