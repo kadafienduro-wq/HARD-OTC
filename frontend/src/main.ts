@@ -535,7 +535,7 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
     ['You receive (estimate)', `≈ ${payText(q)}`],
     ['Minimum you accept', payText({ xrd: minX, hard: minH })],
   ], 'HARD ADV reviews the request manually. If accepted, XRD and HARD go straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
-  () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
+  () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), decStr(minX), decStr(minH)), 'Sale request sent. Waiting for review.'))
 })
 
 // ---------- Community pool ----------
@@ -881,7 +881,7 @@ document.addEventListener('click', (e) => {
           ['HARD price now (Ociswap)', `${nf(price, 6)} XRD`],
           ['Seller gets', `≈ ${payText(pay)}`],
         ], `${priceSpike() ? priceSpike() + ' ' : ''}The live price is written on-chain and the sale is completed in the same transaction. XRD and HARD go from your buyback wallets straight to the seller.`,
-        () => M.adminAcceptLsuAtPrice(account!, desk.adminBadge, r.id, String(+price.toFixed(12))), `Request #${r.id} accepted at ${nf(price, 6)} XRD/HARD`)
+        () => M.adminAcceptLsuAtPrice(account!, desk.adminBadge, r.id, decStr(price)), `Request #${r.id} accepted at ${nf(price, 6)} XRD/HARD`)
       })
       .catch(() => toast('Could not get the HARD price from Ociswap. Try again, or set a manual price first and accept then.'))
   }

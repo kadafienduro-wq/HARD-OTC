@@ -1,6 +1,6 @@
 // Ustawienia sieci. Ta sama strona buduje się dwa razy: Stokenet (test) i Mainnet.
 // Sieć wybiera zmienna VITE_NETWORK przy budowie (domyślnie stokenet).
-const NET = (import.meta as any).env?.VITE_NETWORK === 'mainnet' ? 'mainnet' : 'stokenet'
+const NET = (import.meta as any).env.VITE_NETWORK === 'mainnet' ? 'mainnet' : 'stokenet'
 const old = location.hash === '#stary'
 
 const NETWORKS = {

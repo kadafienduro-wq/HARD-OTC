@@ -33,7 +33,12 @@ fn failed_with(receipt: &TransactionReceipt, text: &str) {
 impl Env {
     fn new() -> Self {
         let mut ledger = LedgerSimulatorBuilder::new().without_kernel_trace().build();
-        let package = ledger.compile_and_publish("../scrypto");
+        // Kontrakt zbudowany wcześniej (`scrypto build`, Rust 1.81) – testujemy dokładnie ten plik, który się wgrywa.
+        let dir = "../scrypto/target/wasm32-unknown-unknown/release";
+        let code = std::fs::read(format!("{dir}/hard_otc.wasm")).expect("build the contract first");
+        let definition: PackageDefinition =
+            manifest_decode(&std::fs::read(format!("{dir}/hard_otc.rpd")).unwrap()).unwrap();
+        let package = ledger.publish_package_simple((code, definition));
 
         let (pk, _, acc) = ledger.new_allocated_account();
         let admin = User { pk, account: acc, badge: 1 };
