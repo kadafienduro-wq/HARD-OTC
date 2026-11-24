@@ -1,0 +1,14 @@
+# MAINNET – krok 2: wizytówka dApp (Radix Wallet pokaże nazwę i logo HARD ADV zamiast ostrzeżenia).
+# DAPP_ACCOUNT = osobne konto mainnet przeznaczone tylko na wizytówkę (może być puste).
+# ADMIN_ACCOUNT, ADMIN_BADGE, DESK, PACKAGE – adresy z kroku 1.
+# WEBSITE – adres strony, np. https://otc.hardadv.eu (bez ukośnika na końcu).
+
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "account_type" Enum<Metadata::String>("dapp definition");
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "name" Enum<Metadata::String>("HARD ADV OTC Desk");
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "description" Enum<Metadata::String>("Peer-to-peer OTC escrow for the HARD ADV community on Radix.");
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "icon_url" Enum<Metadata::Url>("WEBSITE/hard-token.png");
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "claimed_websites" Enum<Metadata::OriginArray>(Array<String>("WEBSITE"));
+SET_METADATA Address("account_rdx_DAPP_ACCOUNT") "claimed_entities" Enum<Metadata::GlobalAddressArray>(Array<Address>(Address("component_rdx_DESK"), Address("package_rdx_PACKAGE")));
+
+CALL_METHOD Address("account_rdx_ADMIN_ACCOUNT") "create_proof_of_amount" Address("resource_rdx_ADMIN_BADGE") Decimal("1");
+SET_METADATA Address("component_rdx_DESK") "dapp_definition" Enum<Metadata::GlobalAddress>(Address("account_rdx_DAPP_ACCOUNT"));

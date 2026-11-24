@@ -1,0 +1,15 @@
+# MAINNET – krok 1: uruchomienie giełdy z prawdziwym HARD.
+# Podmień PACKAGE (adres pakietu po wgraniu) i ACCOUNT (Twoje konto admina na mainnecie).
+# Na konto trafią 2 badge'e admina – jeden przenieś na drugie (zapasowe) konto.
+
+CALL_FUNCTION
+    Address("package_rdx_PODMIEN")
+    "OtcDesk"
+    "instantiate"
+    Address("resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn")
+;
+CALL_METHOD
+    Address("account_rdx_PODMIEN")
+    "deposit_batch"
+    Expression("ENTIRE_WORKTOP")
+;
