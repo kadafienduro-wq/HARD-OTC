@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
-            -d '{"intent_hash":"txid_tdx_2_17swvv3xdqu3ux8gskswrhph0vssl6lj54t346ffz63j05lvyzsusz3yzjn","opt_ins":{"affected_global_entities":true}}' \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[])]"
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' \
+            -d '{"addresses":["account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp"]}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);[print('META',m['key'],json.dumps(m['value'].get('typed'))) for m in d['items'][0]['metadata']['items']]"
+          for u in https://kadafienduro-wq.github.io/HARD-OTC/ https://kadafienduro-wq.github.io/hard-otc/; do echo "PAGE $u $(curl -s -o /tmp/p -w '%{http_code}' $u)"; done
+          grep -o 'assets/[^"]*\.js' /tmp/p | head -1 | while read f; do curl -s https://kadafienduro-wq.github.io/hard-otc/$f | grep -o 'component_tdx_2_1cpv03[a-z0-9]*\|Switch account\|dAppDefinitionAddress[^,]*' | sort -u | sed 's/^/JS /'; done
