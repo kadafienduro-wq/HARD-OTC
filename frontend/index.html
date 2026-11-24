@@ -39,7 +39,7 @@
       </div>
       <div class="ob-step" id="ob-2">
         <span class="ob-num">2</span>
-        <div><b>Mint your free HARD OTC Badge</b><small>Your identity on the desk. Needed to buy, sell and lock HARD.</small></div>
+        <div><b>Mint your free HARD OTC Badge</b><small>Your numbered identity on the desk (#1, #2, …). Needed to buy, sell and lock HARD.</small></div>
         <button class="primary small" id="ob-mint" hidden>Mint badge</button>
       </div>
       <div class="ob-step" id="ob-3">
@@ -171,7 +171,7 @@
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
           <li><b>Promotion.</b> Sellers can pay HARD to pin their offer with ★ at the top for 24 hours. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
-          <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can reserve an offer for a specific HARD OTC Badge. Everyone can see it; only that badge holder can buy it.</li>
+          <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
       </section>
@@ -294,7 +294,7 @@
 
         <details class="adv">
           <summary>Reserve for a specific buyer (optional)</summary>
-          <input name="reserved" id="reserved" placeholder="Buyer's HARD OTC Badge ID, e.g. {44c1…a475}" />
+          <input name="reserved" id="reserved" placeholder="Buyer's badge number, e.g. 12" />
           <small class="hint" id="reserved-note">Requires at least 1,000 HARD locked. Leave empty for a public offer.</small>
         </details>
 

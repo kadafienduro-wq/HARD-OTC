@@ -16,8 +16,11 @@
 
 use scrypto::prelude::*;
 
+/// HARD OTC Badge: numerowany (#1, #2, …) badge tożsamości na desku.
 #[derive(ScryptoSbor, NonFungibleData)]
 pub struct RiderBadge {
+    pub name: String,
+    pub number: u64,
     pub created_at: Instant,
 }
 
@@ -132,6 +135,8 @@ mod hard_otc {
         /// badge admina (strona pokazuje panel admina portfelom, które go mają)
         admin_badge: ResourceAddress,
         rider_badge: NonFungibleResourceManager,
+        /// numer następnego HARD OTC Badge
+        next_badge_number: u64,
         hard_resource: ResourceAddress,
         /// (próg zablokowanych HARD, mnożnik opłaty) rosnąco po progu
         discount_tiers: Vec<(Decimal, Decimal)>,
@@ -185,7 +190,7 @@ mod hard_otc {
                 }))
                 .mint_initial_supply(1);
 
-            let rider_badge = ResourceBuilder::new_ruid_non_fungible::<RiderBadge>(OwnerRole::None)
+            let rider_badge = ResourceBuilder::new_integer_non_fungible::<RiderBadge>(OwnerRole::None)
                 .metadata(metadata!(init {
                     "name" => "HARD OTC Badge", locked;
                     "description" => "Testnet identity badge for the HARD OTC desk. No monetary value.", locked;
@@ -199,6 +204,7 @@ mod hard_otc {
             let component = Self {
                 admin_badge: admin_badge.resource_address(),
                 rider_badge,
+                next_badge_number: 1,
                 hard_resource,
                 discount_tiers: vec![
                     (dec!("1000"), dec!("0.8")),
@@ -257,10 +263,18 @@ mod hard_otc {
 
         // ---------- Rider badge ----------
 
+        /// Wybija kolejny numerowany HARD OTC Badge (#1, #2, …).
         pub fn mint_rider_badge(&mut self) -> NonFungibleBucket {
-            self.rider_badge.mint_ruid_non_fungible(RiderBadge {
-                created_at: Clock::current_time_rounded_to_seconds(),
-            })
+            let number = self.next_badge_number;
+            self.next_badge_number += 1;
+            self.rider_badge.mint_non_fungible(
+                &NonFungibleLocalId::integer(number),
+                RiderBadge {
+                    name: format!("HARD OTC Badge #{}", number),
+                    number,
+                    created_at: Clock::current_time_rounded_to_seconds(),
+                },
+            )
         }
 
         // ---------- Oferty ----------

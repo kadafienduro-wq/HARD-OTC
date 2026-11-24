@@ -23,6 +23,8 @@ const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySe
 const myRider = () => riderIds[0]
 const balanceOf = (addr: string) => Number(balances.find((b) => b.address === addr)?.amount ?? 0)
 const XRD = CONFIG.knownResources[0]?.address ?? ''
+/** "#12#" -> "#12" (numbered badges); older random IDs are shortened. */
+const badgeNo = (id: string) => (/^#\d+#$/.test(id) ? id.slice(0, -1) : `${id.slice(0, 7)}…${id.slice(-5)}`)
 
 // ---------- Formatting ----------
 const esc = (s: string) =>
@@ -84,7 +86,7 @@ const isFeatured = (o: OfferView) => o.featuredUntil > Date.now()
 const repText = (id: string) => {
   const s = stats.get(id)
   const n = s ? s.sells + s.buys : 0
-  return n ? `${n} trade${n === 1 ? '' : 's'} completed` : 'new trader'
+  return `Badge ${badgeNo(id)} · ${n ? `${n} trade${n === 1 ? '' : 's'}` : 'new trader'}`
 }
 
 // ---------- Radix dApp Toolkit ----------
@@ -202,7 +204,7 @@ function renderOnboarding() {
 function renderMe() {
   $('#me').hidden = !account
   if (!account) return
-  $('#me-badge').textContent = myRider() ? `${myRider().slice(0, 7)}…${myRider().slice(-5)}` : 'not minted'
+  $('#me-badge').textContent = myRider() ? badgeNo(myRider()) : 'not minted'
   $('#me-hard').textContent = nf(balanceOf(CONFIG.hardResource), 2)
   $('#me-locked').textContent = nf(myLocked, 2)
   $('#me-fee').textContent = `${(feeRate(myLocked) * 100).toFixed(2)}%`
@@ -633,7 +635,10 @@ function readForm() {
     ask: sellMode ? t(2) : t(1),
     askAmount: sellMode ? a2 : a1,
     expiry: Number(f.get('expiry') || 72) as 1 | 6 | 72,
-    reserved: String(f.get('reserved') || '').trim(),
+    reserved: (() => {
+      const raw = String(f.get('reserved') || '').trim().replace(/^#|#$/g, '')
+      return raw ? (/^\d+$/.test(raw) ? `#${raw}#` : raw) : ''
+    })(),
     partial: f.get('partial') === 'on',
   }
 }
