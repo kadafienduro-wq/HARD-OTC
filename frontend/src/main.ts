@@ -4,7 +4,7 @@ import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
-  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, type LsuRequest,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, getFaucetClaimed, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -13,6 +13,8 @@ let riderIds: string[] = []
 let offers: OfferView[] = []
 let balances: { address: string; amount: string }[] = []
 let myLocked = 0
+let faucetClaimed = true
+let faucetBal = 0
 let myUnlock = { amount: 0, readyAt: 0 }
 let treasuryHard = 0
 let treasuryAll: { address: string; amount: number }[] = []
@@ -211,6 +213,10 @@ async function refreshAll() {
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
     livePrice = await getLiveHardPrice().catch(() => 0)
+    ;[faucetClaimed, faucetBal] = await Promise.all([
+      myRider() && desk.faucetAmount > 0 ? getFaucetClaimed(myRider()).catch(() => true) : Promise.resolve(true),
+      desk.faucetVault ? getVaultAmount(desk.faucetVault).catch(() => 0) : Promise.resolve(0),
+    ])
     ;[lsuRequests, buybackPool, poolSupply, buybackXrd] = await Promise.all([
       getLsuRequests().catch(() => []),
       getVaultAmount(desk.buybackVault).catch(() => 0),
@@ -272,7 +278,12 @@ function renderOnboarding() {
   $('#ob-3-text').textContent = desk.listingFee
     ? `Creating an offer costs ${nf(desk.listingFee)} HARD.${s1 ? ` You have ${nf(hard)} HARD.` : ''} Buying only costs the trading fee.`
     : 'Listing is free right now. Buying only costs the trading fee.'
-  $('#onboard').hidden = s1 && s2 && s3
+  const canFaucet = s2 && desk.faucetAmount > 0 && !faucetClaimed && faucetBal >= desk.faucetAmount
+  $('#ob-faucet').hidden = !canFaucet
+  if (canFaucet) $('#ob-3').classList.remove('done')
+  $('#ob-faucet').textContent = `Get ${nf(desk.faucetAmount)} ${CONFIG.testnet ? 'test ' : ''}HARD`
+  $('#ob-testnet-help').hidden = !CONFIG.testnet
+  $('#onboard').hidden = s1 && s2 && s3 && !canFaucet
 }
 
 function renderMe() {
@@ -631,6 +642,10 @@ function renderAdmin() {
   $('#adm-fee-now').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'
   $('#adm-trade-now').textContent = `${nf(desk.feePerSide * 100, 3)}% per side`
   $('#adm-trade-box').hidden = desk.version < 6
+  $('#adm-faucet-box').hidden = desk.version < 7
+  $('#adm-faucet-now').textContent = desk.faucetAmount ? `${nf(desk.faucetAmount)} HARD per badge` : 'off'
+  $('#adm-faucet-bal').textContent = `${nf(faucetBal)} HARD`
+  $('#adm-faucet-given').textContent = `${nf(desk.faucetGiven)} HARD`
   $('#adm-res-now').textContent = desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'
   $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
@@ -697,6 +712,26 @@ $('#adm-fee-btn').addEventListener('click', () => {
   if (raw === '' || !(v >= 0 && v <= 100)) return toast('Listing fee must be between 0 and 100 HARD.')
   adminSend('Change listing fee', [['Now', desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Applies to new offers only.',
     () => M.adminSetListingFee(account!, desk.adminBadge, String(v)), `Listing fee set to ${nf(v)} HARD`)
+})
+$('#adm-faucet-set').addEventListener('click', () => {
+  const raw = $<HTMLInputElement>('#adm-faucet-amt').value
+  const v = Number(raw)
+  if (raw === '' || !(v >= 0)) return toast('Enter HARD per badge (0 turns the faucet off).')
+  adminSend('Faucet amount', [['Now', desk.faucetAmount ? `${nf(desk.faucetAmount)} HARD` : 'off'], ['New', v ? `${nf(v)} HARD per badge` : 'off']], 'Anyone can mint a free badge, so on mainnet keep the faucet small or off.',
+    () => M.adminSetFaucetAmount(account!, desk.adminBadge, decStr(v)), v ? `Faucet set to ${nf(v)} HARD` : 'Faucet off')
+})
+$('#adm-faucet-add').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#adm-faucet-fund').value)
+  if (!(v > 0)) return toast('Enter how much HARD to add.')
+  if (v > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
+  adminSend('Add HARD to faucet', [['You add', `${nf(v)} HARD`], ['Faucet after', `${nf(faucetBal + v)} HARD`]], '',
+    () => M.adminFundFaucet(account!, desk.adminBadge, CONFIG.hardResource, decStr(v)), `${nf(v)} HARD added to faucet`)
+})
+$('#adm-faucet-out').addEventListener('click', () => {
+  const amt = outAmount('#adm-faucet-fund', faucetBal)
+  if (!(amt > 0)) return toast('The faucet is empty.')
+  adminSend('Take HARD back from faucet', [['You receive', `${nf(amt)} HARD`]], '',
+    () => M.adminWithdrawFaucet(account!, desk.adminBadge, amt >= faucetBal ? '0' : decStr(amt)), `${nf(amt)} HARD taken back`)
 })
 $('#adm-trade-btn').addEventListener('click', () => {
   const raw = $<HTMLInputElement>('#adm-trade').value
@@ -883,6 +918,9 @@ const mint = () =>
     'The badge is your identity on the desk. Keep it in your wallet.',
     () => account && send(M.mintRiderBadge(account), 'HARD OTC Badge minted'))
 $('#ob-mint').addEventListener('click', mint)
+$('#ob-faucet').addEventListener('click', () =>
+  confirmAction(`Get ${nf(desk.faucetAmount)} HARD`, [['You receive', `${nf(desk.faucetAmount)} HARD`], ['Limit', 'once per badge']], CONFIG.testnet ? 'Test HARD for trying the desk. It has no value.' : '',
+    () => account && send(M.claimFaucet(account, myRider()), `${nf(desk.faucetAmount)} HARD received`)))
 
 document.addEventListener('click', (e) => {
   const el = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null
