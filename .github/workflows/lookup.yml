@@ -1,0 +1,12 @@
+name: Odczyt transakcji
+on:
+  push:
+    paths: ['.github/workflows/lookup.yml']
+jobs:
+  odczyt:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
+            -d '{"intent_hash":"txid_tdx_2_1axy02nyd4w0fwhhgfrxkwyq6nkn6m785xt6l0vta4wqmlau6uanqk8zyhg","opt_ins":{"affected_global_entities":true}}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[])]"
