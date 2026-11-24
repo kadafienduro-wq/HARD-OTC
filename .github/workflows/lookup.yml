@@ -7,9 +7,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for A in account_tdx_2_1285haarwvuhf7vevqp9e0s8c0ff6gxrtrnz9fjh4k57jwzr6zehrfx account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp; do
-            echo "ACCOUNT $A"
-            curl -s -X POST https://stokenet.radixdlt.com/stream/transactions -H 'Content-Type: application/json' \
-              -d "{\"affected_global_entities_filter\":[\"$A\"],\"limit_per_page\":8,\"order\":\"Desc\",\"opt_ins\":{\"affected_global_entities\":true}}" \
-              | python3 -c "import sys,json;d=json.load(sys.stdin);[print('TX',i['intent_hash'],i['confirmed_at'],i['transaction_status'],[e for e in i.get('affected_global_entities',[]) if e.startswith(('package','component','resource'))]) for i in d['items']]"
-          done
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' \
+            -d '{"addresses":["package_tdx_2_1phq74rsmk08y99jmm624xu5z25lcvlnmwqx4vyd2qk8nvsmh7twr7p"],"opt_ins":{"package_blueprints":true}}' > p.json
+          for f in request_unlock withdraw_unlocked set_listing_fee set_burn_share unlock_hard; do echo "CHECK $f $(grep -c "\"$f\"" p.json)"; done
