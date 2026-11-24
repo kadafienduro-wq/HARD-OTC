@@ -253,6 +253,7 @@ function render() {
   renderMine()
   renderLock()
   renderStaked()
+  renderCounters()
   renderPool()
   renderTreasury()
   renderAdmin()
@@ -281,6 +282,10 @@ function renderMe() {
   $('#me-hard').textContent = nf(balanceOf(CONFIG.hardResource), 2)
   $('#me-locked').textContent = nf(myLocked, 2)
   $('#me-fee').textContent = `${(feeRate(myLocked) * 100).toFixed(2)}%`
+  {
+    const next = desk.tiers.find((t) => myLocked < t.threshold)
+    $('#me-fee-tip').textContent = next ? `Lock ${nf(next.threshold - myLocked)} more HARD → ${(desk.feePerSide * next.multiplier * 100).toFixed(2)}%` : 'Lowest fee tier'
+  }
 }
 
 // ---------- Market ----------
@@ -829,12 +834,36 @@ $('#adm-pause-btn').addEventListener('click', () => {
 })
 
 // ---------- Tabs ----------
-const TABS = ['market', 'mine', 'lock', 'staked', 'treasury', 'how', 'admin']
+const TABS = ['market', 'staked', 'mine', 'treasury', 'how', 'admin']
 function showTab(t: string) {
   document.querySelectorAll<HTMLButtonElement>('nav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === t))
   for (const x of TABS) $(`#tab-${x}`).hidden = x !== t
 }
 document.querySelectorAll<HTMLButtonElement>('nav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)))
+// Lock / Unlock z paska konta (okno zamiast osobnej zakładki)
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>('[data-lock]')
+  if (!b) return
+  const d = $<HTMLDialogElement>('#lock-dialog')
+  d.showModal()
+  ;(b.dataset.lock === 'unlock' ? $('#unlock-amount') : $('#lock-amount')).focus()
+})
+/** Liczniki przy zakładkach: moje otwarte oferty + oczekujące zgłoszenia, oczekujące u admina. */
+function renderCounters() {
+  const open = offers.filter((o) => riderIds.includes(o.seller) && o.status === 'Open' && o.expiresAt > Date.now()).length
+  const myPending = lsuRequests.filter((r) => riderIds.includes(r.requester) && r.status === 'Pending').length
+  const allPending = lsuRequests.filter((r) => r.status === 'Pending').length
+  const set = (id: string, n: number) => { const el = $(id); el.hidden = !n; el.textContent = String(n) }
+  set('#cnt-mine', open + myPending)
+  set('#cnt-admin', allPending)
+  $('#lsu-mine-link').innerHTML = myPending ? `You have <b>${myPending}</b> request${myPending > 1 ? 's' : ''} waiting for review. <a href="#" data-goto="mine">See My activity →</a>` : ''
+}
+document.addEventListener('click', (e) => {
+  const a = (e.target as HTMLElement).closest<HTMLElement>('[data-goto]')
+  if (!a) return
+  e.preventDefault()
+  showTab(a.dataset.goto!)
+})
 
 // ---------- Actions ----------
 $('#refresh').addEventListener('click', () => { toast('Refreshing…', 1500); refreshAll() })
