@@ -52,7 +52,7 @@
       </div>
       <div class="ob-step" id="ob-2">
         <span class="ob-num">2</span>
-        <div><b>Mint your free HARD OTC Badge</b><small>Your numbered identity on the desk (#1, #2, …). Needed to buy, sell and lock HARD.</small></div>
+        <div><b>Mint your free HARD OTC Badge</b><small>Your numbered identity on the desk (#1, #2, ...). It stays in this account (cannot be transferred). Needed to buy, sell and lock HARD.</small></div>
         <button class="primary small" id="ob-mint" hidden>Mint badge</button>
       </div>
       <div class="ob-step" id="ob-3">
@@ -247,6 +247,18 @@
         <p class="muted">Visible only to the wallet holding the HARD OTC Admin badge. Every change is a transaction you sign in your Radix Wallet; the smart contract rejects it without the badge.</p>
 
         <div class="admin-grid">
+          <div class="box" id="adm-safety-box">
+            <h3>Safety</h3>
+            <p class="muted">Token mode: <b id="adm-ov-now">–</b></p>
+            <button id="adm-ov-toggle">Switch token mode</button>
+            <p class="muted" style="margin-top:12px">Return an offer to its seller (e.g. suspicious token). Tokens go only to the seller.</p>
+            <div class="inline">
+              <input id="adm-return-id" type="text" placeholder="Offer number, e.g. 12" />
+              <button id="adm-return-btn" class="primary">Return</button>
+            </div>
+            <p class="muted" style="margin-top:12px">Expired offers still holding tokens: <b id="adm-expired-count">–</b></p>
+            <button id="adm-reclaim-btn">Return all expired to sellers</button>
+          </div>
           <div class="box" id="adm-faucet-box">
             <h3>HARD faucet</h3>
             <p class="muted">Each badge can claim this amount once (for testers or promotions). 0 = off. Now: <b id="adm-faucet-now">–</b> · In faucet: <b id="adm-faucet-bal">–</b> · Given so far: <b id="adm-faucet-given">–</b></p>
@@ -476,6 +488,7 @@
         </div>
 
         <div class="leg">
+          <p class="muted" id="only-verified-note" hidden>Only verified ✓ tokens can be traded right now.</p>
           <div class="leg-title" id="leg1-title">You sell</div>
           <div class="inline">
             <input name="amount1" id="amount1" type="number" min="0" step="any" placeholder="Amount" required />

@@ -41,6 +41,8 @@ const esc = (s: string) =>
 const nf = (n: number, d = 4) => n.toLocaleString('en-US', { maximumFractionDigits: d })
 const pct = (m: number) => `${Math.round((1 - m) * 100)}%`
 const feeRate = (locked: number) => desk.feePerSide * multiplierFor(locked)
+/** Moja stawka dla konkretnej oferty (v8: stawka zamrożona w ofercie w chwili wystawienia). */
+const offerFee = (o: { feeRate: number | null }) => (o.feeRate ?? desk.feePerSide) * multiplierFor(myLocked)
 const sym = (addr: string) => tokenInfo(addr).symbol
 const isVerified = (addr: string) => desk.verified.includes(addr)
 const pickerSync: Record<string, () => void> = {}
@@ -652,6 +654,10 @@ function renderAdmin() {
   $('#adm-trade-now').textContent = `${nf(desk.feePerSide * 100, 3)}% per side`
   $('#adm-trade-box').hidden = desk.version < 6
   $('#adm-faucet-box').hidden = desk.version < 7
+  $('#adm-safety-box').hidden = desk.version < 8
+  $('#adm-ov-now').textContent = desk.onlyVerified ? 'ON (only ✓ tokens)' : 'OFF (any token)'
+  const expired = offers.filter((x) => x.status === 'Open' && x.expiresAt <= Date.now())
+  $('#adm-expired-count').textContent = String(expired.length)
   $('#adm-faucet-now').textContent = desk.faucetAmount ? `${nf(desk.faucetAmount)} HARD per badge` : 'off'
   $('#adm-faucet-bal').textContent = `${nf(faucetBal)} HARD`
   $('#adm-faucet-given').textContent = `${nf(desk.faucetGiven)} HARD`
@@ -721,6 +727,25 @@ $('#adm-fee-btn').addEventListener('click', () => {
   if (raw === '' || !(v >= 0 && v <= 100)) return toast('Listing fee must be between 0 and 100 HARD.')
   adminSend('Change listing fee', [['Now', desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Applies to new offers only.',
     () => M.adminSetListingFee(account!, desk.adminBadge, String(v)), `Listing fee set to ${nf(v)} HARD`)
+})
+$('#adm-ov-toggle').addEventListener('click', () => {
+  const on = !desk.onlyVerified
+  adminSend(on ? 'Only verified tokens' : 'Allow any token', [['Now', desk.onlyVerified ? 'only ✓ tokens' : 'any token'], ['New', on ? 'only ✓ tokens' : 'any token']],
+    on ? 'Safest: people can only list tokens you have checked.' : 'Risky: tokens whose issuer can recall or freeze them could hurt buyers.',
+    () => M.adminSetOnlyVerified(account!, desk.adminBadge, on), on ? 'Only verified tokens now' : 'Any token allowed now')
+})
+$('#adm-return-btn').addEventListener('click', () => {
+  const id = $<HTMLInputElement>('#adm-return-id').value.replace('#', '').trim()
+  const o = offers.find((x) => x.id === id && x.status === 'Open')
+  if (!o) return toast('No open offer with this number.')
+  adminSend(`Return offer #${o.id} to its seller`, [['Seller gets back', `${nf(Number(o.sellRemaining))} ${esc(sym(o.sellResource))}`], ['To account', short(String(o.sellerAccount))]],
+    'Tokens go only to the seller\'s own account. You never receive them.', () => M.adminReturnOffer(account!, desk.adminBadge, o.id), `Offer #${o.id} returned to the seller`)
+})
+$('#adm-reclaim-btn').addEventListener('click', () => {
+  const ids = offers.filter((x) => x.status === 'Open' && x.expiresAt <= Date.now()).map((x) => x.id).slice(0, 20)
+  if (!ids.length) return toast('No expired offers waiting.')
+  confirmAction('Return expired offers', [['Offers', ids.map((i) => '#' + i).join(', ')]], 'Each seller gets their tokens back to their own account.',
+    () => account && send(M.reclaimExpired(account, ids), `${ids.length} expired offer(s) returned`))
 })
 $('#adm-faucet-set').addEventListener('click', () => {
   const raw = $<HTMLInputElement>('#adm-faucet-amt').value
@@ -941,14 +966,15 @@ document.addEventListener('click', (e) => {
     const pay = Number(o.askRemaining)
     const have = balanceOf(o.askResource)
     if (have < pay) return toast(`You need ${nf(pay)} ${sym(o.askResource)}, you have ${nf(have)}.`)
-    const fee = Number(o.sellRemaining) * feeRate(myLocked)
+    const fee = Number(o.sellRemaining) * offerFee(o)
+    const net = Number(o.sellRemaining) - fee
     confirmAction(`${kindOf(o) === 'buy' ? 'Sell into request' : 'Buy offer'} #${o.id}`, [
       ['You pay', `${nf(pay)} ${esc(symV(o.askResource))}`],
-      ['You receive', `${nf(Number(o.sellRemaining) - fee)} ${esc(symV(o.sellResource))}`],
-      ['Your trading fee', `${nf(fee)} ${esc(sym(o.sellResource))} (${(feeRate(myLocked) * 100).toFixed(2)}%)`],
+      ['You receive', `${nf(net)} ${esc(symV(o.sellResource))}`],
+      ['Your trading fee', `${nf(fee)} ${esc(sym(o.sellResource))} (${(offerFee(o) * 100).toFixed(2)}%)`],
       ['Counterparty', esc(repText(o.seller))],
     ], unverifiedNote(o.sellResource, o.askResource) + 'Settles in one atomic transaction: you pay and receive at the same moment.',
-    () => send(M.acceptOffer(account!, myRider(), o.id, o.askResource, String(pay)), `Offer #${o.id} filled`))
+    () => send(M.acceptOffer(account!, myRider(), o.id, o.askResource, String(pay), decStr(net * 0.999)), `Offer #${o.id} filled`))
   }
 
   if (el.dataset.cancel && account) {
@@ -1037,6 +1063,7 @@ $('#request-unlock-btn').addEventListener('click', () => {
   const amount = Number($<HTMLInputElement>('#unlock-amount').value)
   if (!(amount > 0)) return toast('Enter how much HARD to unlock.')
   if (amount > myLocked) return toast(`You only have ${nf(myLocked)} HARD locked.`)
+  if (desk.version >= 8 && myUnlock.amount > 0 && myUnlock.readyAt <= Date.now()) return toast(`First withdraw your ${nf(myUnlock.amount)} unlocked HARD (it's ready), then request a new unlock.`)
   const after = myLocked - amount
   confirmAction('Request unlock', [
     ['Unlocking', `${nf(amount)} HARD`],
@@ -1111,13 +1138,13 @@ function updateBuy() {
   const pay = Number($<HTMLInputElement>('#buy-amount').value || 0)
   const askRem = Number(o.askRemaining)
   const gross = (Number(o.sellRemaining) * Math.min(pay, askRem)) / askRem
-  const fee = gross * feeRate(myLocked)
+  const fee = gross * offerFee(o)
   $('#buy-hint').textContent = `You have ${nf(balanceOf(o.askResource))} ${sym(o.askResource)} · ${Math.round((Math.min(pay, askRem) / askRem) * 100)}% of the offer`
   const warn = unverifiedNote(o.sellResource, o.askResource)
   $('#buy-summary').innerHTML = `
     <div class="sline"><span>You pay</span><b>${nf(Math.min(pay, askRem))} ${esc(symV(o.askResource))}</b></div>
     <div class="sline"><span>You receive</span><b>${nf(gross - fee)} ${esc(symV(o.sellResource))}</b></div>
-    <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${nf(fee)} ${esc(sym(o.sellResource))}</b></div>
+    <div class="sline sub"><span>Your trading fee (${(offerFee(o) * 100).toFixed(2)}%)</span><b>${nf(fee)} ${esc(sym(o.sellResource))}</b></div>
     ${warn ? `<p class="snote">${warn}</p>` : ''}`
   let err = ''
   if (!(pay > 0)) err = 'Enter how much you want to pay.'
@@ -1155,7 +1182,9 @@ $('#buy-form').addEventListener('submit', (e) => {
   const pay = Math.min(Number($<HTMLInputElement>('#buy-amount').value || 0), Number(o.askRemaining))
   if (!(pay > 0) || pay > balanceOf(o.askResource)) return
   buyDlg.close()
-  send(M.acceptOffer(account, myRider(), o.id, o.askResource, String(pay)), `Filled ${nf(pay)} ${sym(o.askResource)} of offer #${o.id}`)
+  const gross = (Number(o.sellRemaining) * pay) / Number(o.askRemaining)
+  const minRecv = gross * (1 - offerFee(o)) * 0.999
+  send(M.acceptOffer(account, myRider(), o.id, o.askResource, String(pay), decStr(minRecv)), `Filled ${nf(pay)} ${sym(o.askResource)} of offer #${o.id}`)
 })
 
 // ---------- Create offer ----------
@@ -1178,9 +1207,11 @@ function fillSelect(sel: HTMLSelectElement, list: string[], prefer: string, with
 function fillTokenSelects() {
   const sell = mode() === 'sell'
   // leg 1 = sell mode: what you sell (from wallet) | buy mode: what you want to buy (any token)
-  fillSelect($<HTMLSelectElement>('#token1'), sell ? walletTokens() : anyTokens(), CONFIG.hardResource, !sell)
+  const ov = (list: string[]) => (desk.onlyVerified ? list.filter(isVerified) : list)
+  fillSelect($<HTMLSelectElement>('#token1'), ov(sell ? walletTokens() : anyTokens()), CONFIG.hardResource, !sell && !desk.onlyVerified)
   // leg 2 = sell mode: what you want (any token) | buy mode: what you pay (from wallet)
-  fillSelect($<HTMLSelectElement>('#token2'), sell ? anyTokens() : walletTokens(), XRD, sell)
+  fillSelect($<HTMLSelectElement>('#token2'), ov(sell ? anyTokens() : walletTokens()), XRD, sell && !desk.onlyVerified)
+  $('#only-verified-note').hidden = !desk.onlyVerified
   $('#leg1-title').textContent = sell ? 'You sell' : 'You want to buy'
   $('#leg2-title').textContent = sell ? 'You want in total' : 'You pay in total (locked in escrow)'
   const q1 = document.getElementById('quick-amount1'); if (q1) q1.hidden = !sell

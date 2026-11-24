@@ -137,6 +137,10 @@ impl Env {
     }
 
     fn accept(&mut self, who: &User, offer: u64, pay: Decimal) -> TransactionReceipt {
+        self.accept_min(who, offer, pay, Decimal::ZERO)
+    }
+
+    fn accept_min(&mut self, who: &User, offer: u64, pay: Decimal, min_receive: Decimal) -> TransactionReceipt {
         let hard = self.hard;
         let m = ManifestBuilder::new()
             .lock_fee_from_faucet()
@@ -144,7 +148,7 @@ impl Env {
             .pop_from_auth_zone("rider")
             .withdraw_from_account(who.account, hard, pay)
             .take_all_from_worktop(hard, "pay")
-            .call_method_with_name_lookup(self.desk, "accept_offer", |l| (offer, l.proof("rider"), l.bucket("pay")))
+            .call_method_with_name_lookup(self.desk, "accept_offer", |l| (offer, l.proof("rider"), l.bucket("pay"), min_receive))
             .deposit_batch(who.account, ManifestExpression::EntireWorktop)
             .build();
         self.ledger.execute_manifest(m, signer(who))
@@ -156,6 +160,17 @@ impl Env {
             .create_proof_from_account_of_non_fungibles(who.account, self.rider_badge, [NonFungibleLocalId::integer(who.badge)])
             .pop_from_auth_zone("rider")
             .call_method_with_name_lookup(self.desk, method, |l| (offer, l.proof("rider")))
+            .deposit_batch(who.account, ManifestExpression::EntireWorktop)
+            .build();
+        self.ledger.execute_manifest(m, signer(who))
+    }
+
+    fn rider_call_noarg(&mut self, who: &User, method: &str) -> TransactionReceipt {
+        let m = ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_non_fungibles(who.account, self.rider_badge, [NonFungibleLocalId::integer(who.badge)])
+            .pop_from_auth_zone("rider")
+            .call_method_with_name_lookup(self.desk, method, |l| (l.proof("rider"),))
             .deposit_batch(who.account, ManifestExpression::EntireWorktop)
             .build();
         self.ledger.execute_manifest(m, signer(who))
@@ -261,7 +276,7 @@ fn oferta_zarezerwowana_tylko_dla_wybranego() {
             .create_proof_from_account_of_non_fungibles(admin.account, e.rider_badge, [NonFungibleLocalId::integer(1)])
             .pop_from_auth_zone("rider")
             .take_all_from_worktop(hard, "pay")
-            .call_method_with_name_lookup(e.desk, "accept_offer", |l| (1u64, l.proof("rider"), l.bucket("pay")))
+            .call_method_with_name_lookup(e.desk, "accept_offer", |l| (1u64, l.proof("rider"), l.bucket("pay"), Decimal::ZERO))
             .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
             .build();
         e.ledger.execute_manifest(m, signer(&admin))
@@ -377,7 +392,7 @@ fn falszywe_lsu_odrzucone() {
         .pop_from_auth_zone("rider")
         .withdraw_from_account(alice.account, fake, dec!("1000"))
         .take_all_from_worktop(fake, "lsu")
-        .call_method_with_name_lookup(e.desk, "request_lsu_sale", |l| (l.proof("rider"), l.bucket("lsu"), dec!("0"), dec!("0"), alice.account))
+        .call_method_with_name_lookup(e.desk, "request_lsu_sale", |l| (l.proof("rider"), l.bucket("lsu"), dec!("1"), dec!("1"), alice.account))
         .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
         .build();
     failed_with(&e.ledger.execute_manifest(m, signer(&alice)), "Not a native Radix validator");
@@ -432,6 +447,7 @@ fn prawdziwe_lsu_wycena_podzial_i_limity() {
             .build();
         e.ledger.execute_manifest(m, signer(&bob))
     };
+    failed_with(&sell(&mut e, lsu_amount, dec!("0"), dec!("350")), "Set a minimum XRD amount");
     sell(&mut e, lsu_amount, dec!("700"), dec!("350")).expect_commit_success();
 
     // Cena HARD zbyt wysoka -> HARD poniżej minimum Boba -> nie da się zaakceptować
@@ -493,4 +509,142 @@ fn kranik_raz_na_badge_i_tylko_gdy_wlaczony() {
     let a0 = e.bal(admin.account, hard);
     e.admin_call(true, "withdraw_faucet", manifest_args!(dec!("0"))).expect_commit_success();
     assert_eq!(e.bal(admin.account, hard), a0 + dec!("900"));
+}
+
+
+// ---------------------------------------------------------------- v8: poprawki po audycie
+
+#[test]
+fn badge_jest_nieprzenosny() {
+    let mut e = Env::new();
+    let (alice, bob) = (alice_of(&e), bob_of(&e));
+    let m = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .withdraw_non_fungibles_from_account(alice.account, e.rider_badge, [NonFungibleLocalId::integer(2)])
+        .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
+        .build();
+    let r = e.ledger.execute_manifest(m, vec![
+        NonFungibleGlobalId::from_public_key(&alice.pk),
+        NonFungibleGlobalId::from_public_key(&bob.pk),
+    ]);
+    assert!(!r.is_commit_success(), "the badge must not leave Alice's account");
+}
+
+#[test]
+fn oplata_zamrozona_w_ofercie() {
+    let mut e = Env::new();
+    let (alice, bob) = (alice_of(&e), bob_of(&e));
+    e.create_offer(&alice, dec!("100"), dec!("1000"), 72, None, false, alice.account).expect_commit_success();
+    // admin podnosi opłatę do 1% już po wystawieniu
+    e.admin_call(true, "set_trading_fee", manifest_args!(dec!("0.01"))).expect_commit_success();
+    let x0 = e.bal(bob.account, XRD);
+    e.accept(&bob, 1, dec!("1000")).expect_commit_success();
+    // dalej 0,5% (stawka z chwili wystawienia)
+    assert_eq!(e.bal(bob.account, XRD), x0 + dec!("99.5"));
+}
+
+#[test]
+fn kupujacy_dostaje_co_najmniej_minimum() {
+    let mut e = Env::new();
+    let (alice, bob) = (alice_of(&e), bob_of(&e));
+    e.create_offer(&alice, dec!("100"), dec!("1000"), 72, None, false, alice.account).expect_commit_success();
+    failed_with(&e.accept_min(&bob, 1, dec!("1000"), dec!("99.6")), "less than your minimum");
+    e.accept_min(&bob, 1, dec!("1000"), dec!("99.5")).expect_commit_success();
+}
+
+#[test]
+fn wygasla_oferte_moze_zwrocic_kazdy_tylko_sprzedajacemu() {
+    let mut e = Env::new();
+    let (alice, bob) = (alice_of(&e), bob_of(&e));
+    e.create_offer(&alice, dec!("100"), dec!("1000"), 1, None, false, alice.account).expect_commit_success();
+    // przed wygaśnięciem — nie
+    failed_with(&e.admin_call(false, "reclaim_expired_offer", manifest_args!(1u64)), "not expired yet");
+    // +2 h
+    let now_ms = e.ledger.get_current_proposer_timestamp_ms();
+    e.ledger.advance_to_round_at_timestamp(Round::of(100), now_ms + 2 * 3600 * 1000);
+    let a0 = e.bal(alice.account, XRD);
+    let b0 = e.bal(bob.account, XRD);
+    // Bob (obcy) wywołuje zwrot — XRD trafia do Alice, nie do Boba
+    let m = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .call_method(e.desk, "reclaim_expired_offer", manifest_args!(1u64))
+        .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
+        .build();
+    e.ledger.execute_manifest(m, signer(&bob)).expect_commit_success();
+    assert_eq!(e.bal(alice.account, XRD), a0 + dec!("100"));
+    assert_eq!(e.bal(bob.account, XRD), b0);
+    failed_with(&e.admin_call(false, "reclaim_expired_offer", manifest_args!(1u64)), "Offer is not open");
+}
+
+#[test]
+fn admin_zwraca_oferte_tylko_sprzedajacemu() {
+    let mut e = Env::new();
+    let (admin, alice) = (admin_of(&e), alice_of(&e));
+    e.create_offer(&alice, dec!("100"), dec!("1000"), 72, None, false, alice.account).expect_commit_success();
+    assert!(!e.admin_call(false, "admin_return_offer", manifest_args!(1u64)).is_commit_success());
+    let a0 = e.bal(alice.account, XRD);
+    let ad0 = e.bal(admin.account, XRD);
+    e.admin_call(true, "admin_return_offer", manifest_args!(1u64)).expect_commit_success();
+    assert_eq!(e.bal(alice.account, XRD), a0 + dec!("100"));
+    assert_eq!(e.bal(admin.account, XRD), ad0);
+}
+
+#[test]
+fn tylko_zweryfikowane_tokeny_domyslnie() {
+    let mut e = Env::new();
+    let alice = alice_of(&e);
+    // nieznany token Alice
+    let r = e.ledger.execute_manifest(
+        ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_fungible_resource(OwnerRole::None, true, 18, FungibleResourceRoles::default(), metadata!(), Some(dec!("1000")))
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
+            .build(),
+        signer(&alice),
+    );
+    let junk = r.expect_commit_success().new_resource_addresses()[0];
+    let offer = |e: &mut Env| {
+        let hard = e.hard;
+        let m = ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_non_fungibles(alice.account, e.rider_badge, [NonFungibleLocalId::integer(2)])
+            .pop_from_auth_zone("rider")
+            .withdraw_from_account(alice.account, junk, dec!("10"))
+            .take_all_from_worktop(junk, "sell")
+            .withdraw_from_account(alice.account, hard, dec!("100"))
+            .take_all_from_worktop(hard, "fee")
+            .call_method_with_name_lookup(e.desk, "create_offer", |l| {
+                (l.proof("rider"), l.bucket("sell"), XRD, dec!("1"), 72u8, None::<NonFungibleLocalId>, alice.account, l.bucket("fee"), false)
+            })
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
+            .build();
+        e.ledger.execute_manifest(m, signer(&alice))
+    };
+    failed_with(&offer(&mut e), "Only verified tokens");
+    e.admin_call(true, "set_only_verified", manifest_args!(false)).expect_commit_success();
+    offer(&mut e).expect_commit_success();
+}
+
+#[test]
+fn ponowne_odblokowanie_nie_zeruje_gotowego_hard() {
+    let mut e = Env::new();
+    let alice = alice_of(&e);
+    e.lock_hard(&alice, dec!("2000"));
+    let unlock = |e: &mut Env, amt: Decimal| {
+        let m = ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_non_fungibles(alice.account, e.rider_badge, [NonFungibleLocalId::integer(2)])
+            .pop_from_auth_zone("rider")
+            .call_method_with_name_lookup(e.desk, "request_unlock", |l| (l.proof("rider"), amt))
+            .build();
+        e.ledger.execute_manifest(m, signer(&alice))
+    };
+    unlock(&mut e, dec!("500")).expect_commit_success();
+    let now_ms = e.ledger.get_current_proposer_timestamp_ms();
+    e.ledger.advance_to_round_at_timestamp(Round::of(100), now_ms + 8 * 24 * 3600 * 1000);
+    failed_with(&unlock(&mut e, dec!("500")), "Withdraw your unlocked HARD first");
+    let h0 = e.bal(alice.account, e.hard);
+    e.rider_call_noarg(&alice, "withdraw_unlocked").expect_commit_success();
+    assert_eq!(e.bal(alice.account, e.hard), h0 + dec!("500"));
+    unlock(&mut e, dec!("500")).expect_commit_success();
 }
