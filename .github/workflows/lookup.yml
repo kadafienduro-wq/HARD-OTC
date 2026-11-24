@@ -8,8 +8,7 @@ jobs:
     steps:
       - run: |
           curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
-            -d '{"intent_hash":"txid_tdx_2_163n0wjxj2g7mw6ry4rhpnml9xmk4gtx88l0pelf8cdg8d3k6qg6swcfzs3","opt_ins":{"affected_global_entities":true}}' \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[]) if e.startswith('component')]" > out.txt; cat out.txt
-          c=$(grep -o 'component_tdx_2_1[a-z0-9]*' out.txt | grep -v 'cptxxxxxxx' | head -1)
-          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d "{\"addresses\":[\"$c\"]}" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('FIELD',x.get('field_name'),x.get('value')) for x in f if x.get('field_name') in ('version','admin_badge','hard_resource')]"
+            -d '{"intent_hash":"txid_tdx_2_1k6kprms7uf9529c0x4nvacepaagyvqsg52xcr2vpuuevtzylcjpqthu6q5"}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'))"
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["component_tdx_2_1cr8uef5n7vmar78mumlxhrv5luj6kyjt9e4lm7ym2et7aenn5deq87"]}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('FIELD',x.get('field_name'),x.get('value')) for x in f if x.get('field_name') in ('faucet_amount','lsu_enabled','lsu_payout','lsu_xrd_share','listing_fee_hard','promotion_fee_hard','reservation_fee_hard','fee_rate_per_side','lsu_max_value_per_tx','lsu_daily_limit','listing_fee','promotion_fee','reservation_fee')]"
