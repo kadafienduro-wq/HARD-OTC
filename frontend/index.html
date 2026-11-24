@@ -210,8 +210,6 @@
           <div class="stat"><span>Reservation / 24h</span><b id="res-fee">–</b></div>
           <div class="stat"><span>Featuring ★ / 24h</span><b id="promo-fee">–</b></div>
           <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
-          <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
-          <div class="stat"><span>HARD burned forever</span><b id="burned">–</b></div>
         </div>
         <div class="stats">
           <div class="stat"><span>Staked XRD bought</span><b id="lsu-bought">–</b></div>
@@ -271,15 +269,6 @@
           </div>
 
           <div class="box">
-            <h3>HARD burn</h3>
-            <p class="muted">Share of fees paid in HARD that is locked forever (removed from circulation). Current: <b id="adm-burn-now">–</b></p>
-            <div class="inline">
-              <input id="adm-burn" type="number" min="0" max="100" step="1" placeholder="0–100 %" />
-              <button id="adm-burn-btn" class="primary">Save</button>
-            </div>
-          </div>
-
-          <div class="box">
             <h3>Reservation fee (per 24h)</h3>
             <p class="muted">HARD per started 24 hours of the offer's validity, paid on top of the listing fee, to reserve an offer for one badge number. Current: <b id="adm-res-now">–</b></p>
             <div class="inline">
@@ -332,12 +321,12 @@
             </div>
           </div>
           <div class="box">
-            <h3>Buyback HARD pool</h3>
-            <p class="muted">HARD paid out to sellers. Available: <b id="adm-pool-now">–</b></p>
+            <h3>Quick buy HARD wallet</h3>
+            <p class="muted">The HARD you set aside to pay people who sell you staked XRD. Each accepted request is paid from here, so it must hold enough HARD. Available now: <b id="adm-pool-now">–</b></p>
             <div class="inline">
               <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD to add" />
               <button id="adm-fund-btn" class="primary">Add HARD</button>
-              <button id="adm-pool-out">Withdraw all</button>
+              <button id="adm-pool-out">Take it back</button>
             </div>
           </div>
         </div>

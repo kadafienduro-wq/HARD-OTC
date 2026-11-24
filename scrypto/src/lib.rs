@@ -6,7 +6,7 @@
 //!    (wymaga >= 1 000 HARD w locku).
 //! 3. Kupujący płaci (`accept_offer`) całość albo część (jeśli oferta pozwala) — atomowo.
 //! 4. Opłata od transakcji 0,75% z każdej strony; progi rabatowe za lock HARD (−20/−40/−60%).
-//! 5. Opłaty -> skarbiec (buyback HARD / płynność). Spalanie opcjonalne (admin, domyślnie 0%).
+//! 5. Opłaty -> skarbiec (buyback HARD / płynność). Brak spalania HARD.
 //! 6a. Rezerwacja oferty dla konkretnego badge'a: 50 HARD za każde rozpoczęte 24 h ważności (ustawia admin).
 //! 6. Wyróżnienie oferty (★): 50 HARD za każde 24 h, dokupowane w dowolnym momencie (ustawia admin).
 //! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
@@ -105,7 +105,6 @@ pub struct OfferPromotedEvent {
 pub struct FeeCollectedEvent {
     pub resource: ResourceAddress,
     pub to_treasury: Decimal,
-    pub burned: Decimal,
 }
 
 #[derive(ScryptoSbor, Clone, PartialEq, Eq, Debug)]
@@ -162,7 +161,6 @@ mod hard_otc {
             quote_fee => PUBLIC;
             withdraw_treasury => restrict_to: [OWNER];
             set_paused => restrict_to: [OWNER];
-            set_burn_share => restrict_to: [OWNER];
             set_listing_fee => restrict_to: [OWNER];
             set_unlock_period => restrict_to: [OWNER];
             set_promotion_fee => restrict_to: [OWNER];
@@ -194,8 +192,6 @@ mod hard_otc {
         /// (próg zablokowanych HARD, mnożnik opłaty) rosnąco po progu
         discount_tiers: Vec<(Decimal, Decimal)>,
         fee_rate_per_side: Decimal,
-        /// jaka część opłat w HARD jest spalana (zamykana na zawsze)
-        hard_burn_share: Decimal,
         /// opłata w HARD za wystawienie oferty
         listing_fee_hard: Decimal,
         /// opłata w HARD za wyróżnienie oferty, za każde 24 h
@@ -220,8 +216,6 @@ mod hard_otc {
         listing_fees_hard: Decimal,
         /// łącznie wypłacone ze skarbca (na buyback / płynność)
         treasury_withdrawn: IndexMap<ResourceAddress, Decimal>,
-        /// HARD zamknięte na zawsze. Nie ma metody, która je wypłaca.
-        burned_hard: Vault,
         // ---- Skup LSU za HARD ----
         lsu_buyback_enabled: bool,
         /// jaka część wartości LSU jest wypłacana w HARD, np. 0.9 = −10%, 0.85 = −15%
@@ -316,7 +310,6 @@ mod hard_otc {
                     (dec!("50000"), dec!("0.4")),
                 ],
                 fee_rate_per_side: dec!("0.0075"),
-                hard_burn_share: Decimal::ZERO,
                 listing_fee_hard: dec!("100"),
                 promotion_fee_hard: dec!("50"),
                 reservation_fee_hard: dec!("50"),
@@ -331,7 +324,6 @@ mod hard_otc {
                 fees_collected: IndexMap::new(),
                 listing_fees_hard: Decimal::ZERO,
                 treasury_withdrawn: IndexMap::new(),
-                burned_hard: Vault::new(hard_resource),
                 lsu_buyback_enabled: false,
                 lsu_payout: dec!("0.9"),
                 hard_price_xrd: Decimal::ZERO,
@@ -993,12 +985,6 @@ mod hard_otc {
             self.verified.retain(|r| *r != resource);
         }
 
-        /// Ile z opłat pobranych w HARD zamykać na zawsze: 0 = wyłączone, 0.5 = połowa, 1 = całość.
-        pub fn set_burn_share(&mut self, share: Decimal) {
-            assert!(share >= Decimal::ZERO && share <= Decimal::ONE, "Share must be between 0 and 1");
-            self.hard_burn_share = share;
-        }
-
         // ---------- Pomocnicze ----------
 
         fn check_rider(&self, rider: Proof) -> NonFungibleLocalId {
@@ -1038,21 +1024,10 @@ mod hard_otc {
                 .unwrap()
         }
 
-        fn collect_fee(&mut self, mut fee: Bucket) {
+        fn collect_fee(&mut self, fee: Bucket) {
             let addr = fee.resource_address();
             let total = fee.amount();
-
-            let mut burned = Decimal::ZERO;
-            if addr == self.hard_resource && self.hard_burn_share > Decimal::ZERO {
-                let burn_amount = total.checked_mul(self.hard_burn_share).unwrap();
-                let burn = fee.take_advanced(
-                    burn_amount,
-                    WithdrawStrategy::Rounded(RoundingMode::ToZero),
-                );
-                burned = burn.amount();
-                self.burned_hard.put(burn);
-            }
-            let to_treasury = fee.amount();
+            let to_treasury = total;
 
             let exists = self.treasury.get(&addr).is_some();
             if exists {
@@ -1064,11 +1039,7 @@ mod hard_otc {
             let entry = self.fees_collected.entry(addr).or_insert(Decimal::ZERO);
             *entry = entry.checked_add(total).unwrap();
 
-            Runtime::emit_event(FeeCollectedEvent {
-                resource: addr,
-                to_treasury,
-                burned,
-            });
+            Runtime::emit_event(FeeCollectedEvent { resource: addr, to_treasury });
         }
 
         /// Sprawdza, że to prawdziwe LSU (metadane "validator" wskazują walidatora, którego

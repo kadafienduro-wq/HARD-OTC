@@ -14,7 +14,6 @@ let offers: OfferView[] = []
 let balances: { address: string; amount: string }[] = []
 let myLocked = 0
 let myUnlock = { amount: 0, readyAt: 0 }
-let burned = 0
 let treasuryHard = 0
 let treasuryAll: { address: string; amount: number }[] = []
 let stats = new Map<string, RiderStats>()
@@ -152,12 +151,11 @@ async function refreshAll() {
   try {
     await loadDeskInfo().catch(() => {})
     riderIds = account ? await getRiderBadges(account).catch(() => []) : []
-    ;[offers, balances, myLocked, myUnlock, burned, treasuryHard] = await Promise.all([
+    ;[offers, balances, myLocked, myUnlock, treasuryHard] = await Promise.all([
       getOffers(),
       account ? getBalances(account).catch(() => []) : Promise.resolve([]),
       myRider() ? getLocked(myRider()).catch(() => 0) : Promise.resolve(0),
       myRider() ? getUnlock(myRider()).catch(() => ({ amount: 0, readyAt: 0 })) : Promise.resolve({ amount: 0, readyAt: 0 }),
-      getVaultAmount(desk.burnedVault).catch(() => 0),
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
     livePrice = await getLiveHardPrice().catch(() => 0)
@@ -485,11 +483,9 @@ function renderTreasury() {
   $('#res-fee').textContent = desk.v3 ? (desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'Free') : '–'
   $('#bb-ready').textContent = `${nf(treasuryHard, 2)} HARD`
   $('#bb-spent').textContent = `${nf(spent, 2)} HARD`
-  $('#burned').textContent = `${nf(burned)} HARD`
   $('#listing-fee').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'Free'
   $('#promo-fee').textContent = desk.v3 ? (desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'Free') : '–'
   $('#trading-fee').textContent = `${(desk.feePerSide * 100).toFixed(2)}% / side`
-  $('#burn-share').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}% of HARD fees` : 'Off'
   $('#lsu-bought').textContent = desk.lsuBought.length ? desk.lsuBought.map((b) => `${nf(Number(b.amount), 2)} ${sym(b.address)}`).join(' · ') : '0'
   $('#lsu-paid').textContent = `${nf(desk.lsuHardPaid, 2)} HARD`
   $('#fees-body').innerHTML = desk.feesCollected.length
@@ -511,7 +507,6 @@ function renderAdmin() {
   $('#adm-res-now').textContent = desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'
   $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
-  $('#adm-burn-now').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}%` : 'off'
   $('#adm-status').textContent = desk.paused ? 'PAUSED' : 'Live'
   $('#adm-status').className = desk.paused ? 'red' : ''
   $('#adm-pause-btn').textContent = desk.paused ? 'Resume desk' : 'Pause desk'
@@ -662,14 +657,6 @@ document.querySelectorAll<HTMLButtonElement>('[data-unlock]').forEach((b) =>
       () => M.adminSetUnlockPeriod(account!, desk.adminBadge, sec), `Unlock period set to ${periodText(sec)}`)
   }),
 )
-$('#adm-burn-btn').addEventListener('click', () => {
-  const raw = $<HTMLInputElement>('#adm-burn').value
-  const v = Number(raw)
-  if (raw === '' || !(v >= 0 && v <= 100)) return toast('Burn share must be between 0 and 100%.')
-  adminSend('Change HARD burn', [['Now', desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}%` : 'off'], ['New', v ? `${v}%` : 'off']],
-    'Burned HARD is locked in the contract forever. This cannot be undone for HARD already burned.',
-    () => M.adminSetBurnShare(account!, desk.adminBadge, String(v / 100)), v ? `Burn set to ${v}%` : 'Burn turned off')
-})
 $('#adm-pause-btn').addEventListener('click', () => {
   const to = !desk.paused
   adminSend(to ? 'Pause desk' : 'Resume desk', [['Status after', to ? 'PAUSED' : 'Live']],
