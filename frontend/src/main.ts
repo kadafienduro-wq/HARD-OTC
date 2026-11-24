@@ -413,7 +413,11 @@ function renderStaked() {
   const lsus = myLsus()
   sel.innerHTML = lsus.length ? lsus.map((a) => `<option value="${esc(a)}">${esc(sym(a))} (${nf(balanceOf(a))})</option>`).join('') : '<option value="">No staked XRD in wallet</option>'
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev
-  $<HTMLButtonElement>('#lsu-sell-btn').disabled = !on || !lsus.length || !myRider()
+  $<HTMLButtonElement>('#lsu-sell-btn').disabled = false
+  $('#lsu-why').textContent = !account ? 'Connect your Radix Wallet to sell.'
+    : !myRider() ? 'Get your HARD OTC Badge first (button at the top of the page).'
+    : !on ? 'Staked XRD buying is closed right now.'
+    : !lsus.length ? 'No staked XRD (LSU) found in your connected account.' : ''
   const mine = lsuRequests.filter((r) => riderIds.includes(r.requester))
   $('#lsu-mine').innerHTML = mine.length
     ? mine.map((r) => `<tr>
@@ -446,7 +450,10 @@ async function updateLsuQuote() {
 $('#lsu-amount').addEventListener('input', updateLsuQuote)
 $('#lsu-token').addEventListener('change', updateLsuQuote)
 $('#lsu-sell-btn').addEventListener('click', async () => {
-  if (!account || !myRider()) return toast('Connect your wallet and mint a HARD OTC Badge first.')
+  if (!account) return toast('Connect your Radix Wallet first.')
+  if (!myRider()) return toast('Get your HARD OTC Badge first (button at the top of the page).')
+  if (!desk.lsuEnabled || desk.paused) return toast('Staked XRD buying is closed right now. The admin must open it in the Admin tab.')
+  if (!myLsus().length) return toast('No staked XRD (LSU) found in your connected account.')
   const lsu = $<HTMLSelectElement>('#lsu-token').value
   const amount = Number($<HTMLInputElement>('#lsu-amount').value || 0)
   if (!lsu || !(amount > 0)) return toast('Choose your staked XRD and enter an amount.')
