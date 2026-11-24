@@ -81,6 +81,8 @@ jobs:
 
       - name: Testy bezpieczenstwa (na zbudowanym kontrakcie)
         working-directory: testy
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: |
           cargo +stable generate-lockfile
           python3 - <<'PY'
