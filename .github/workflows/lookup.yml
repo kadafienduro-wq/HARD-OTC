@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' \
-            -d '{"addresses":["package_tdx_2_1p47uc6l6evy8fa6jjuurctwa0tsp4phcwwjce92rwxrsv385xxnevt"],"opt_ins":{"package_blueprints":true}}' > p.json
-          for f in request_lsu_sale accept_lsu_sale deposit_pool settle_pool set_reservation_fee promote_offer add_verified mint_rider_badge; do echo "CHECK $f $(grep -c "\"$f\"" p.json)"; done
+          for T in txid_tdx_2_1p5u2vtpg77xmuu32wxe7ws607zg8qj7jd20p6x79awe0gwzn664seexj4a; do
+          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
+            -d "{\"intent_hash\":\"$T\",\"opt_ins\":{\"affected_global_entities\":true}}" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'],t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[])]"
+          done
