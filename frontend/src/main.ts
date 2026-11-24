@@ -320,7 +320,14 @@ function toast(msg: string) {
   toastTimer = window.setTimeout(() => (t.hidden = true), 6000)
 }
 
+window.addEventListener('hashchange', () => location.reload())
+
 async function init() {
+  if (CONFIG.oldDesk) {
+    $('#desk-switch').textContent = '← Wróć do nowego desku'
+    $('#desk-switch').setAttribute('href', '#')
+    $('.warn').textContent = 'STARY DESK (v1): tylko do anulowania starych ofert i odebrania tokenów.'
+  }
   try {
     await loadDeskInfo()
   } catch (e) {

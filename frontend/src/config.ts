@@ -2,7 +2,11 @@
 export const CONFIG = {
   // Konto skonfigurowane jako dApp Definition (Developer Console -> Configure dApp Definition)
   dAppDefinitionAddress: 'account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp',
-  deskComponent: 'component_tdx_2_1cpuj7t6ycgxuy7yfu6vk0mjtsrf05a0etweelzvqmzwfexxeqy2g9d',
+  // Desk v2 (opłata za ogłoszenie, progi, skarbiec, wypłata z locka z opóźnieniem)
+  deskComponent: location.hash === '#stary'
+    ? 'component_tdx_2_1cpuj7t6ycgxuy7yfu6vk0mjtsrf05a0etweelzvqmzwfexxeqy2g9d'
+    : 'component_tdx_2_1cz2clk7v9q8d3hacnxgmzr2tk47s56chu99lf834vtcz4eg5hp7g2m',
+  oldDesk: location.hash === '#stary',
   riderBadgeResource: '', // odczytywane z desku przy starcie
   hardResource: '', // odczytywane z desku przy starcie
   gatewayUrl: 'https://stokenet.radixdlt.com',
