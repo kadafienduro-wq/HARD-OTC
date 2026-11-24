@@ -7,9 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
-            -d '{"intent_hash":"txid_tdx_2_1t5n69x33cad9zvcj4ke6c2unrc8jhkurzf3ce0kmk2983fsswnesec4cg3","opt_ins":{"affected_global_entities":true}}' \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[]) if e.startswith('component') or e.startswith('resource')]" > out.txt; cat out.txt
-          c=$(grep -o 'component_tdx_2_1[a-z0-9]*' out.txt | grep -v 'cptxxxxxxx' | head -1)
-          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d "{\"addresses\":[\"$c\"]}" \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('FIELD',x.get('field_name'),json.dumps(x)[:600]) for x in f if x.get('field_name')=='tokens']"
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp"],"aggregation_level":"Global"}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);[print('BAL',i['resource_address'],i['amount']) for i in d['items'][0]['fungible_resources']['items'] if i['resource_address'].endswith(('yxhgtn','8yvuv','tfd2jc'))]"
+          cat > m.rtm <<'RTM'
+          CALL_METHOD Address("account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp") "withdraw" Address("resource_tdx_2_1t4x3apc4tre2ynjjl2qg5ctzvfaft48xlcxp52a36qy7s9d6yxhgtn") Decimal("150000");
+          RTM
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["component_tdx_2_1cq94zykxeg8uvs53v584z0amnjra4rk6px4dtdeclkvng4p8gxlyl3"]}' | python3 -c "import sys,json;d=json.load(sys.stdin);print('OWNER',json.dumps(d['items'][0].get('details',{}).get('role_assignments',{}).get('owner'))[:300])"
