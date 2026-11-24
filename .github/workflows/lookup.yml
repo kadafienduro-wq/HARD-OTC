@@ -8,7 +8,7 @@ jobs:
     steps:
       - run: |
           curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
-            -d '{"intent_hash":"txid_tdx_2_1wjha5u73f43p90xvwpeu7rw5fh85fwyjv9u2sk6ads5fajqvy4sq3zywfp","opt_ins":{"affected_global_entities":true}}' \
+            -d '{"intent_hash":"txid_tdx_2_129qxf8eagdfc8mhnaav6krnhv4k9r7y0pnu6a29dxq9qjj33023slewhpg","opt_ins":{"affected_global_entities":true}}' \
             | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[]) if e.startswith('component')]" > out.txt; cat out.txt
           c=$(grep -o 'component_tdx_2_1[a-z0-9]*' out.txt | grep -v 'cptxxxxxxx' | head -1)
           curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d "{\"addresses\":[\"$c\"]}" \
