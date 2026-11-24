@@ -7,6 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn | python3 -c "import sys,json;d=json.load(sys.stdin);print('OCI', json.dumps({k:d.get(k) for k in ('symbol','price','tvl','volume','total_supply')}))"
-          curl -s https://api.ociswap.com/tokens/resource_rdx1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxradxrd | python3 -c "import sys,json;d=json.load(sys.stdin);print('XRDUSD', json.dumps(d.get('price')))"
-          curl -s "https://api.ociswap.com/pools?token=resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn&limit=5" | head -c 3000 | sed 's/^/POOLS /'
+          for base in https://kadafienduro-wq.github.io/HARD-OTC/ https://kadafienduro-wq.github.io/HARD-OTC/mainnet/; do
+            curl -s $base -o p.html; js=$(grep -o 'assets/[^"]*\.js' p.html | head -1)
+            curl -s "$base$js" -o a.js
+            echo "SITE $base js=$js safety=$(grep -c 'Blocked for safety' a.js) mainnetgw=$(grep -c 'mainnet.radixdlt.com' a.js) desk=$(grep -o 'component_tdx_2_1cpv03[a-z0-9]*' a.js | head -1)"
+            grep -o 'VITE_NETWORK[^,;]*\|"mainnet"===[^?]*?' a.js | head -2 | sed 's/^/NETCHK /'
+          done
