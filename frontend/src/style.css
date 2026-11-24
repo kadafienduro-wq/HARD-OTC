@@ -322,3 +322,5 @@ label.off { opacity: .35; pointer-events: none; }
 .tp-btn, .tp-row { text-transform: none; letter-spacing: normal; font-family: inherit; font-weight: 400; }
 .tp-main b { font-weight: 700; letter-spacing: .02em; }
 .tp-main small { text-transform: none; letter-spacing: 0; }
+
+.vname { color: #e6c46a; font-weight: 600; }

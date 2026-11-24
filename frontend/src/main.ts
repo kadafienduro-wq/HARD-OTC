@@ -59,7 +59,7 @@ function icon(addr: string) {
   if (addr === CONFIG.hardResource) return '<img class="ico" src="hard-token.png" alt="">'
   const t = tokenInfo(addr)
   const letter = esc((t.symbol || '?').slice(0, 1).toUpperCase())
-  const src = addr === XRD ? XRD_ICON : t.icon
+  const src = addr === XRD ? XRD_ICON : t.icon || t.validatorIcon || null
   const staked = !!t.validator
   const img = src
     ? `<img class="ico" src="${esc(src)}" alt="" loading="lazy" data-letter="${letter}" data-addr="${esc(addr)}"${staked ? ' data-staked="1"' : ''}>`
@@ -70,7 +70,7 @@ function icon(addr: string) {
 function tok(addr: string, amount?: number) {
   const t = tokenInfo(addr)
   const mark = isVerified(addr) ? '<span class="ver" title="Verified by HARD ADV">✓</span>' : '<span class="unver" title="Not verified. Check the address.">UNVERIFIED</span>'
-  const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}<button type="button" class="addr" data-copy="${esc(addr)}" title="Copy full address">${esc(short(addr))} ⧉</button><a class="addr-link" href="${esc(CONFIG.explorerUrl)}/resource/${esc(addr)}" target="_blank" rel="noopener" title="Check this token in the Radix explorer">↗</a>`
+  const sub = `${t.validator ? `Validator: <b class="vname">${esc(t.validatorName || short(t.validator))}</b> · ` : t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}<button type="button" class="addr" data-copy="${esc(addr)}" title="Copy full address">${esc(short(addr))} ⧉</button><a class="addr-link" href="${esc(CONFIG.explorerUrl)}/resource/${esc(addr)}" target="_blank" rel="noopener" title="Check this token in the Radix explorer">↗</a>`
   return `<span class="tok">${icon(addr)}<span><b>${amount !== undefined ? nf(amount) + ' ' : ''}${esc(t.symbol)}${mark}</b><small title="${esc(addr)}">${sub}</small></span></span>`
 }
 function timeLeft(ms: number) {
@@ -495,7 +495,8 @@ async function updateLsuQuote() {
   const rate = await rateOf(lsu)
   const bal = balanceOf(lsu)
   const balXrd = bal * rate
-  const have = rate ? `You have ≈ ${nf(balXrd)} XRD staked here (${nf(bal)} ${sym(lsu)}, 1 ${sym(lsu)} = ${nf(rate, 6)} XRD).` : 'Could not read this validator right now.'
+  const vName = tokenInfo(lsu).validatorName || 'this validator'
+  const have = rate ? `You have ≈ ${nf(balXrd)} XRD staked with ${vName} (${nf(bal)} LSU, 1 LSU = ${nf(rate, 6)} XRD).` : 'Could not read this validator right now.'
   if (!(want > 0) || !rate) {
     $('#lsu-quote').innerHTML = ''
     $('#lsu-hint').textContent = have
@@ -1304,7 +1305,8 @@ function tokenPicker(sel: HTMLSelectElement) {
     if (v === 'custom') return '<span class="ico ph">+</span><span class="tp-main"><b>Other token…</b><small>paste an address</small></span>'
     const t = tokenInfo(v)
     const mark = isVerified(v) ? '<span class="ver">✓</span>' : ''
-    return `${icon(v)}<span class="tp-main"><b>${esc(t.symbol)}${mark}</b><small>${t.validator ? 'Staked XRD · ' : ''}${esc(short(v))}</small></span>`
+    const title = t.validator ? `Staked XRD · ${esc(t.validatorName || 'validator')}` : esc(t.symbol)
+    return `${icon(v)}<span class="tp-main"><b>${title}${mark}</b><small>${t.validator ? `validator ${esc(short(t.validator))} · ` : ''}${esc(short(v))}</small></span>`
   }
   const sync = () => { btn.innerHTML = label(sel.value) + '<span class="tp-caret">▾</span>' }
 

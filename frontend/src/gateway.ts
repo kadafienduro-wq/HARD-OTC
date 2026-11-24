@@ -350,7 +350,7 @@ export async function getOffers(): Promise<OfferView[]> {
     .sort((a: OfferView, b: OfferView) => Number(b.id) - Number(a.id))
 }
 
-export type TokenInfo = { address: string; symbol: string; name: string; icon: string | null; validator?: string; supply?: number }
+export type TokenInfo = { address: string; symbol: string; name: string; icon: string | null; validator?: string; validatorName?: string; validatorIcon?: string | null; supply?: number }
 
 const tokenCache = new Map<string, TokenInfo>()
 
@@ -372,6 +372,24 @@ export async function getTokens(addresses: string[]): Promise<Map<string, TokenI
         supply: Number(item.details?.total_supply ?? 0),
       })
     }
+  }
+  // Dla stakowanego XRD: nazwa i logo walidatora
+  const lsus = todo.map((a) => tokenCache.get(a)).filter((t): t is TokenInfo => !!t?.validator)
+  const vals = [...new Set(lsus.map((t) => t.validator!))]
+  for (let i = 0; i < vals.length; i += 20) {
+    try {
+      const r = await post('/state/entity/details', { addresses: vals.slice(i, i + 20) })
+      for (const item of r.items ?? []) {
+        const meta = item.metadata?.items ?? []
+        const get = (k: string) => meta.find((m: any) => m.key === k)?.value?.typed?.value as string | undefined
+        const icon = get('icon_url')
+        for (const t of lsus)
+          if (t.validator === item.address) {
+            t.validatorName = get('name') || short(item.address)
+            t.validatorIcon = icon && icon.startsWith('https://') ? icon : null
+          }
+      }
+    } catch { /* nazwa walidatora jest tylko dodatkiem */ }
   }
   return tokenCache
 }
