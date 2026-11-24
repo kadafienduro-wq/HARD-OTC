@@ -7,9 +7,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for base in https://kadafienduro-wq.github.io/HARD-OTC/ https://kadafienduro-wq.github.io/HARD-OTC/mainnet/; do
-            curl -s $base -o p.html; js=$(grep -o 'assets/[^"]*\.js' p.html | head -1)
-            curl -s "$base$js" -o a.js
-            echo "SITE $base js=$js safety=$(grep -c 'Blocked for safety' a.js) mainnetgw=$(grep -c 'mainnet.radixdlt.com' a.js) desk=$(grep -o 'component_tdx_2_1cpv03[a-z0-9]*' a.js | head -1)"
-            grep -o 'VITE_NETWORK[^,;]*\|"mainnet"===[^?]*?' a.js | head -2 | sed 's/^/NETCHK /'
-          done
+          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
+            -d '{"intent_hash":"txid_tdx_2_1wr09phla6l03x4gtaluvk6jlmyhrvpp694kwu7xurhgdfjzvc0aqcqnqxn","opt_ins":{"affected_global_entities":true}}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'));[print('ENTITY',e) for e in t.get('affected_global_entities',[]) if e.startswith('component')]" > out.txt; cat out.txt
+          c=$(grep -o 'component_tdx_2_1[a-z0-9]*' out.txt | grep -v 'cptxxxxxxx' | head -1)
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d "{\"addresses\":[\"$c\"]}" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('FIELD',x.get('field_name'),x.get('value')) for x in f if x.get('field_name') in ('version','admin_badge','hard_resource')]"
