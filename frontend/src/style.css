@@ -324,3 +324,30 @@ label.off { opacity: .35; pointer-events: none; }
 .tp-main small { text-transform: none; letter-spacing: 0; }
 
 .vname { color: #e6c46a; font-weight: 600; }
+
+/* Pasek konta: Lock/Unlock */
+.me-act { display: flex; gap: 6px; margin-top: 8px; }
+.mini { padding: 5px 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: transparent; border: 1px solid #3a3a3a; color: var(--text, #fff); cursor: pointer; }
+.mini:hover { border-color: var(--red, #e11d2a); color: #fff; }
+.me-tip { display: block; margin-top: 6px; font-size: 11px; color: var(--muted); }
+dialog.wide { width: min(980px, 94vw); }
+/* Liczniki w zakładkach */
+nav .cnt { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: var(--red, #e11d2a); color: #fff; font-style: normal; font-size: 11px; line-height: 1; vertical-align: 2px; }
+nav .cnt[hidden] { display: none; }
+/* Telefon: zakładki przewijane w poziomie */
+@media (max-width: 760px) {
+  nav { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { flex: none; white-space: nowrap; }
+}
+.me-act .mini + .mini { margin-left: 0; }
+.me-act { gap: 8px; }
+@media (max-width: 760px) {
+  header { position: static; flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
+  header .brand { flex: 1 1 auto; }
+  header #net-badge { order: 3; font-size: 10px; padding: 4px 8px; }
+  header #switch-acc { order: 4; padding: 6px 10px; }
+  header radix-connect-button { order: 2; }
+  .me { grid-template-columns: 1fr 1fr; }
+}
+.me-item .me-act { display: flex !important; gap: 8px; }

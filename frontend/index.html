@@ -65,18 +65,17 @@
     <section class="me" id="me" hidden>
       <div class="me-item"><span>HARD OTC Badge</span><b id="me-badge">–</b></div>
       <div class="me-item"><span>HARD in wallet</span><b id="me-hard">–</b></div>
-      <div class="me-item"><span>HARD locked</span><b id="me-locked">–</b></div>
-      <div class="me-item"><span>Your trading fee</span><b id="me-fee">–</b></div>
+      <div class="me-item"><span>HARD locked</span><b id="me-locked">–</b><span class="me-act"><button type="button" class="mini" data-lock="lock">Lock</button><button type="button" class="mini" data-lock="unlock">Unlock</button></span></div>
+      <div class="me-item"><span>Your trading fee</span><b id="me-fee">–</b><small class="me-tip" id="me-fee-tip"></small></div>
     </section>
 
     <nav>
       <button data-tab="market" class="active">Market</button>
-      <button data-tab="mine">My offers</button>
-      <button data-tab="lock">Lock HARD</button>
-      <button data-tab="staked">We buy staked XRD</button>
+      <button data-tab="staked">Sell staked XRD</button>
+      <button data-tab="mine">My activity <i class="cnt" id="cnt-mine" hidden></i></button>
       <button data-tab="treasury">Treasury</button>
       <button data-tab="how">How it works</button>
-      <button data-tab="admin" id="admin-tab" class="admin-tab" hidden>Admin</button>
+      <button data-tab="admin" id="admin-tab" class="admin-tab" hidden>Admin <i class="cnt" id="cnt-admin" hidden></i></button>
     </nav>
 
     <main>
@@ -110,41 +109,22 @@
 
       <!-- MY OFFERS -->
       <section id="tab-mine" hidden>
-        <h2>My offers</h2>
+        <h2>My activity</h2>
+        <h3>My offers</h3>
         <p class="muted">Cancel an open offer at any time to get the remaining tokens back (expired offers too). Feature an offer with ★ to pin it at the top of the market (paid per 24 hours, any time after posting). Fees are not refunded.</p>
         <table class="stack">
           <thead><tr><th>#</th><th>You give</th><th>You receive</th><th>Status</th><th></th></tr></thead>
           <tbody id="mine-body"></tbody>
         </table>
+
+        <h3>My staked XRD sales</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>LSU sent</th><th>You get</th><th>Status</th><th></th></tr></thead>
+          <tbody id="lsu-mine"></tbody>
+        </table>
+
       </section>
 
-      <!-- LOCK -->
-      <section id="tab-lock" hidden>
-        <h2>Lock HARD, pay lower fees</h2>
-        <p class="muted">Locked HARD lowers your trading fee and unlocks reserved (private) offers. Locking earns no yield.</p>
-        <div class="tiers" id="tier-cards"></div>
-        <div class="meter-wrap" id="tier-progress"></div>
-
-        <div class="split">
-          <div class="box">
-            <h3>Lock</h3>
-            <p class="muted">Moves HARD from your wallet into your lock. The discount applies immediately.</p>
-            <div class="inline">
-              <input id="lock-amount" type="number" min="0" step="any" value="1000" aria-label="HARD to lock" />
-              <button id="lock-btn" class="primary">Lock HARD</button>
-            </div>
-          </div>
-          <div class="box">
-            <h3>Unlock</h3>
-            <p class="muted" id="unlock-period-info">Unlocking takes two steps: request, then claim after the waiting period. HARD being unlocked no longer counts toward your discount.</p>
-            <div class="inline">
-              <input id="unlock-amount" type="number" min="0" step="any" placeholder="HARD to unlock" aria-label="HARD to unlock" />
-              <button id="request-unlock-btn">Request unlock</button>
-            </div>
-            <div id="unlock-box"></div>
-          </div>
-        </div>
-      </section>
 
       <!-- STAKED XRD QUICK BUY -->
       <section id="tab-staked" hidden>
@@ -170,12 +150,8 @@
           <p class="hint red" id="lsu-why"></p>
           <div class="summary" id="lsu-quote"></div>
         </div>
+        <p class="muted" id="lsu-mine-link"></p>
 
-        <h3>My requests</h3>
-        <table class="stack">
-          <thead><tr><th>#</th><th>LSU sent</th><th>You get</th><th>Status</th><th></th></tr></thead>
-          <tbody id="lsu-mine"></tbody>
-        </table>
 
         <div id="pool-section" hidden>
           <h3>Community buyback pool</h3>
@@ -430,6 +406,35 @@
     </main>
 
     <!-- CREATE OFFER -->
+    <dialog id="lock-dialog" class="wide">
+      <div class="dlg-head"><h2>Lock HARD, pay lower fees</h2><button type="button" class="x" data-close>✕</button></div>
+
+        
+        <p class="muted">Locked HARD lowers your trading fee and unlocks reserved (private) offers. Locking earns no yield.</p>
+        <div class="tiers" id="tier-cards"></div>
+        <div class="meter-wrap" id="tier-progress"></div>
+
+        <div class="split">
+          <div class="box">
+            <h3>Lock</h3>
+            <p class="muted">Moves HARD from your wallet into your lock. The discount applies immediately.</p>
+            <div class="inline">
+              <input id="lock-amount" type="number" min="0" step="any" value="1000" aria-label="HARD to lock" />
+              <button id="lock-btn" class="primary">Lock HARD</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Unlock</h3>
+            <p class="muted" id="unlock-period-info">Unlocking takes two steps: request, then claim after the waiting period. HARD being unlocked no longer counts toward your discount.</p>
+            <div class="inline">
+              <input id="unlock-amount" type="number" min="0" step="any" placeholder="HARD to unlock" aria-label="HARD to unlock" />
+              <button id="request-unlock-btn">Request unlock</button>
+            </div>
+            <div id="unlock-box"></div>
+          </div>
+        </div>
+          </dialog>
+
     <dialog id="create-dialog">
       <form id="create-form" novalidate>
         <div class="dlg-head"><h2>Create offer</h2><button type="button" class="x" data-close>✕</button></div>
