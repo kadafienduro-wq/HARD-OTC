@@ -80,9 +80,6 @@ CALL_METHOD Address("${desk()}") "set_listing_fee" Decimal("${amount}");`
 export const adminSetUnlockPeriod = (account: string, adminBadge: string, seconds: number) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_unlock_period" ${Math.round(seconds)}i64;`
 
-export const adminSetBurnShare = (account: string, adminBadge: string, share: string) => `${adminProof(account, adminBadge)}
-CALL_METHOD Address("${desk()}") "set_burn_share" Decimal("${share}");`
-
 export const adminSetPaused = (account: string, adminBadge: string, paused: boolean) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_paused" ${paused};`
 
