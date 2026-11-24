@@ -7,9 +7,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp"],"aggregation_level":"Global"}' \
-            | python3 -c "import sys,json;d=json.load(sys.stdin);[print('BAL',i['resource_address'],i['amount']) for i in d['items'][0]['fungible_resources']['items'] if i['resource_address'].endswith(('yxhgtn','8yvuv','tfd2jc'))]"
-          cat > m.rtm <<'RTM'
-          CALL_METHOD Address("account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp") "withdraw" Address("resource_tdx_2_1t4x3apc4tre2ynjjl2qg5ctzvfaft48xlcxp52a36qy7s9d6yxhgtn") Decimal("150000");
-          RTM
-          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["component_tdx_2_1cq94zykxeg8uvs53v584z0amnjra4rk6px4dtdeclkvng4p8gxlyl3"]}' | python3 -c "import sys,json;d=json.load(sys.stdin);print('OWNER',json.dumps(d['items'][0].get('details',{}).get('role_assignments',{}).get('owner'))[:300])"
+          curl -s -X POST https://stokenet.radixdlt.com/transaction/committed-details -H 'Content-Type: application/json' \
+            -d '{"intent_hash":"txid_tdx_2_1wkez8kyyj7ekg57pe2mf9l0nrmyz0gqc90smv4yx8dd9qrdmnmuq8v26n9"}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);t=d['transaction'];print('STATUS',t['transaction_status'], t.get('error_message'))"
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["component_tdx_2_1cq94zykxeg8uvs53v584z0amnjra4rk6px4dtdeclkvng4p8gxlyl3"]}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('FIELD',x.get('field_name'),x.get('value')) for x in f if x.get('field_name') in ('hard','hard_amount','cooldown_seconds')]" > f.txt; cat f.txt
+          v=$(grep -o 'internal_vault_[a-z0-9_]*' f.txt | head -1)
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d "{\"addresses\":[\"$v\"]}" | python3 -c "import sys,json;d=json.load(sys.stdin);print('VAULT',d['items'][0]['details']['balance']['amount'])"
+          curl -s -X POST https://stokenet.radixdlt.com/state/entity/details -H 'Content-Type: application/json' -d '{"addresses":["component_tdx_2_1cqzf2t5mnpc95d4zln4xxxhqhl75c0vnyud7s0rrns498fehdgxmp3"]}' \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);f=d['items'][0]['details']['state']['fields'];[print('VERIFIED',len(x.get('elements',[]))) for x in f if x.get('field_name')=='verified']"
