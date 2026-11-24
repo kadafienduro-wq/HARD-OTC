@@ -91,7 +91,10 @@ impl Env {
                 .try_deposit_or_abort(alice.account, None, "a")
                 .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
                 .build(),
-            vec![NonFungibleGlobalId::from_public_key(&admin.pk)],
+            vec![
+                NonFungibleGlobalId::from_public_key(&admin.pk),
+                NonFungibleGlobalId::from_public_key(&bob.pk),
+            ],
         );
         r.expect_commit_success();
         for u in [&admin, &alice, &bob] {
