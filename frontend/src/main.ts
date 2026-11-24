@@ -118,7 +118,14 @@ const rdt = RadixDappToolkit({
 rdt.walletApi.setRequestData(DataRequestBuilder.accounts().exactly(1))
 rdt.walletApi.walletData$.subscribe(async (data) => {
   account = data.accounts[0]?.address ?? null
+  $('#switch-acc').hidden = !account
   await refreshAll()
+})
+// Zmiana konta: ponownie pyta portfel, które konto udostępnić.
+$('#switch-acc').addEventListener('click', async () => {
+  toast('Choose the account in your Radix Wallet…', 0)
+  const r = await rdt.walletApi.sendRequest()
+  toast(r.isErr() ? 'Account not changed.' : 'Account switched.', 4000)
 })
 
 async function send(manifest: string, okMsg: string) {

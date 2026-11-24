@@ -275,3 +275,6 @@ button.act:hover { background: var(--red); color: #fff; border-color: var(--red)
 .addr-link:hover { color: var(--red); }
 .sline.sub span, .sline.sub b { font-size: 14px; color: var(--muted, #aaa); padding-left: 14px; }
 .sline.sub b { color: inherit; font-weight: 600; }
+
+.ghost-sm { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 8px 12px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.ghost-sm:hover { color: var(--text, #fff); border-color: var(--muted); }
