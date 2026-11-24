@@ -79,6 +79,45 @@ jobs:
             scrypto/target/wasm32-unknown-unknown/release/hard_otc.wasm
             scrypto/target/wasm32-unknown-unknown/release/hard_otc.rpd
 
+  testy:
+    name: Testy bezpieczenstwa kontraktu
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust 1.81.0 + wasm
+        run: |
+          rustup toolchain install 1.81.0 --profile minimal --target wasm32-unknown-unknown
+          rustup toolchain install stable --profile minimal
+          sudo apt-get update && sudo apt-get install -y clang llvm
+      - name: Wersje bibliotek zgodne z Rust 1.81
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+        run: |
+          for d in scrypto testy; do
+            (cd $d && cargo +stable generate-lockfile && python3 - <<'PY'
+          import re, subprocess
+          for _ in range(6):
+              lock = open('Cargo.lock').read()
+              bad = [(n, v) for n, v in re.findall(r'name = "((?:sbor|scrypto|radix)[\w-]*)"\nversion = "([^"]+)"', lock) if v != '1.3.0']
+              print('Do cofniecia:', bad)
+              if not bad:
+                  break
+              for n, v in bad:
+                  subprocess.run(['cargo', '+stable', 'update', '-p', f'{n}@{v}', '--precise', '1.3.0'])
+          PY
+            )
+          done
+      - uses: actions/cache@v4
+        with:
+          path: |
+            testy/target
+            ~/.cargo/registry
+          key: testy-${{ hashFiles('testy/Cargo.lock') }}
+      - name: Uruchom testy
+        working-directory: testy
+        run: cargo test --release -- --test-threads=2 --nocapture
+
   strona:
     name: Strona (budowa)
     if: github.ref == 'refs/heads/main'
@@ -92,7 +131,9 @@ jobs:
         working-directory: frontend
         run: |
           npm install
-          npm run build
+          VITE_NETWORK=stokenet npm run build
+          VITE_NETWORK=mainnet npx vite build --outDir dist-mainnet
+          mv dist-mainnet dist/mainnet
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

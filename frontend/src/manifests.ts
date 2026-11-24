@@ -1,6 +1,9 @@
 import { CONFIG } from './config'
+import { desk as deskInfo } from './gateway'
 
 const desk = () => CONFIG.deskComponent
+/** Kontrakt v5+ przyjmuje kwotę przy wypłatach (0 = całość). */
+const v5amt = (amount: string) => (deskInfo.version >= 5 ? ` Decimal("${amount}")` : '')
 
 const riderProof = (account: string, riderId: string) => `
 CALL_METHOD Address("${account}") "create_proof_of_non_fungibles"
@@ -83,8 +86,8 @@ CALL_METHOD Address("${desk()}") "set_unlock_period" ${Math.round(seconds)}i64;`
 export const adminSetPaused = (account: string, adminBadge: string, paused: boolean) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_paused" ${paused};`
 
-export const adminWithdrawTreasury = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
-CALL_METHOD Address("${desk()}") "withdraw_treasury" Address("${resource}");${depositAll(account)}`
+export const adminWithdrawTreasury = (account: string, adminBadge: string, resource: string, amount = '0') => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_treasury" Address("${resource}")${v5amt(amount)};${depositAll(account)}`
 
 export const promoteOffer = (account: string, riderId: string, offerId: string, hardResource: string, fee: string, days: number) => `
 CALL_METHOD Address("${account}") "withdraw" Address("${hardResource}") Decimal("${fee}");
@@ -129,8 +132,8 @@ CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amoun
 TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("hard");${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "fund_lsu_buyback" Bucket("hard");`
 
-export const adminWithdrawBuybackHard = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
-CALL_METHOD Address("${desk()}") "withdraw_buyback_hard";${depositAll(account)}`
+export const adminWithdrawBuybackHard = (account: string, adminBadge: string, amount = '0') => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_buyback_hard"${v5amt(amount)};${depositAll(account)}`
 
 export const adminWithdrawLsu = (account: string, adminBadge: string, lsu: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_lsu" Address("${lsu}");${depositAll(account)}`
@@ -167,8 +170,8 @@ CALL_METHOD Address("${account}") "withdraw" Address("${xrd}") Decimal("${amount
 TAKE_ALL_FROM_WORKTOP Address("${xrd}") Bucket("xrd");${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "fund_lsu_buyback_xrd" Bucket("xrd");`
 
-export const adminWithdrawBuybackXrd = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
-CALL_METHOD Address("${desk()}") "withdraw_buyback_xrd";${depositAll(account)}`
+export const adminWithdrawBuybackXrd = (account: string, adminBadge: string, amount = '0') => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_buyback_xrd"${v5amt(amount)};${depositAll(account)}`
 
 export const adminSetLsuLimits = (account: string, adminBadge: string, perTx: string, daily: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_lsu_limits" Decimal("${perTx}") Decimal("${daily}");`

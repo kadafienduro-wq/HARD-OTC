@@ -190,6 +190,8 @@ mod hard_otc {
     }
 
     struct OtcDesk {
+        /// wersja kontraktu (strona dopasowuje do niej transakcje)
+        version: u8,
         /// badge admina (strona pokazuje panel admina portfelom, które go mają)
         admin_badge: ResourceAddress,
         rider_badge: NonFungibleResourceManager,
@@ -320,6 +322,7 @@ mod hard_otc {
                 .create_with_no_initial_supply();
 
             let component = Self {
+                version: 5,
                 admin_badge: admin_badge.resource_address(),
                 rider_badge,
                 next_badge_number: 1,
