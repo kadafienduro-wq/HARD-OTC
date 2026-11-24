@@ -59,7 +59,7 @@ impl Env {
                     metadata!(init { "symbol" => "HARD", locked; }),
                     Some(dec!("1000000")),
                 )
-                .deposit_batch(admin.account)
+                .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
                 .build(),
             vec![],
         );
@@ -69,7 +69,7 @@ impl Env {
             ManifestBuilder::new()
                 .lock_fee_from_faucet()
                 .call_function(package, "OtcDesk", "instantiate", manifest_args!(hard))
-                .deposit_batch(admin.account)
+                .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
                 .build(),
             vec![],
         );
@@ -89,7 +89,7 @@ impl Env {
                 .withdraw_from_account(admin.account, hard, dec!("200000"))
                 .take_from_worktop(hard, dec!("100000"), "a")
                 .try_deposit_or_abort(alice.account, None, "a")
-                .deposit_batch(bob.account)
+                .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
                 .build(),
             vec![NonFungibleGlobalId::from_public_key(&admin.pk)],
         );
@@ -99,7 +99,7 @@ impl Env {
                 ManifestBuilder::new()
                     .lock_fee_from_faucet()
                     .call_method(desk, "mint_rider_badge", manifest_args!())
-                    .deposit_batch(u.account)
+                    .deposit_batch(u.account, ManifestExpression::EntireWorktop)
                     .build(),
                 vec![],
             );
@@ -128,7 +128,7 @@ impl Env {
             .call_method_with_name_lookup(self.desk, "create_offer", |l| {
                 (l.proof("rider"), l.bucket("sell"), hard, ask, hours, reserved.clone(), payout, l.bucket("fee"), partial)
             })
-            .deposit_batch(who.account)
+            .deposit_batch(who.account, ManifestExpression::EntireWorktop)
             .build();
         self.ledger.execute_manifest(m, signer(who))
     }
@@ -142,7 +142,7 @@ impl Env {
             .withdraw_from_account(who.account, hard, pay)
             .take_all_from_worktop(hard, "pay")
             .call_method_with_name_lookup(self.desk, "accept_offer", |l| (offer, l.proof("rider"), l.bucket("pay")))
-            .deposit_batch(who.account)
+            .deposit_batch(who.account, ManifestExpression::EntireWorktop)
             .build();
         self.ledger.execute_manifest(m, signer(who))
     }
@@ -153,7 +153,7 @@ impl Env {
             .create_proof_from_account_of_non_fungibles(who.account, self.rider_badge, [NonFungibleLocalId::integer(who.badge)])
             .pop_from_auth_zone("rider")
             .call_method_with_name_lookup(self.desk, method, |l| (offer, l.proof("rider")))
-            .deposit_batch(who.account)
+            .deposit_batch(who.account, ManifestExpression::EntireWorktop)
             .build();
         self.ledger.execute_manifest(m, signer(who))
     }
@@ -165,7 +165,7 @@ impl Env {
         if who_is_admin {
             b = b.create_proof_from_account_of_amount(account, self.admin_badge, dec!("1"));
         }
-        let m = b.call_method(self.desk, method, args).deposit_batch(account).build();
+        let m = b.call_method(self.desk, method, args).deposit_batch(account, ManifestExpression::EntireWorktop).build();
         self.ledger.execute_manifest(m, vec![NonFungibleGlobalId::from_public_key(&pk)])
     }
 
@@ -259,7 +259,7 @@ fn oferta_zarezerwowana_tylko_dla_wybranego() {
             .pop_from_auth_zone("rider")
             .take_all_from_worktop(hard, "pay")
             .call_method_with_name_lookup(e.desk, "accept_offer", |l| (1u64, l.proof("rider"), l.bucket("pay")))
-            .deposit_batch(admin.account)
+            .deposit_batch(admin.account, ManifestExpression::EntireWorktop)
             .build();
         e.ledger.execute_manifest(m, signer(&admin))
     };
@@ -291,7 +291,7 @@ fn wyroznienie_nie_dluzsze_niz_oferta() {
             .withdraw_from_account(alice.account, hard, dec!("1000"))
             .take_all_from_worktop(hard, "h")
             .call_method_with_name_lookup(e.desk, "promote_offer", |l| (1u64, l.proof("rider"), l.bucket("h"), days))
-            .deposit_batch(alice.account)
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
             .build();
         e.ledger.execute_manifest(m, signer(&alice))
     };
@@ -360,7 +360,7 @@ fn falszywe_lsu_odrzucone() {
                 metadata!(init { "validator" => GlobalAddress::from(alice.account), locked; }),
                 Some(dec!("1000")),
             )
-            .deposit_batch(alice.account)
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
             .build(),
         vec![],
     );
@@ -372,7 +372,7 @@ fn falszywe_lsu_odrzucone() {
         .withdraw_from_account(alice.account, fake, dec!("1000"))
         .take_all_from_worktop(fake, "lsu")
         .call_method_with_name_lookup(e.desk, "request_lsu_sale", |l| (l.proof("rider"), l.bucket("lsu"), dec!("0"), dec!("0"), alice.account))
-        .deposit_batch(alice.account)
+        .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
         .build();
     failed_with(&e.ledger.execute_manifest(m, signer(&alice)), "Not a native Radix validator");
 }
@@ -392,7 +392,7 @@ fn prawdziwe_lsu_wycena_podzial_i_limity() {
         .withdraw_from_account(bob.account, XRD, dec!("1000"))
         .take_all_from_worktop(XRD, "x")
         .call_method_with_name_lookup(validator, "stake_as_owner", |l| (l.bucket("x"),))
-        .deposit_batch(bob.account)
+        .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
         .build();
     e.ledger.execute_manifest(m, signer(&bob)).expect_commit_success();
     let lsu_amount = e.bal(bob.account, lsu);
@@ -422,7 +422,7 @@ fn prawdziwe_lsu_wycena_podzial_i_limity() {
             .withdraw_from_account(bob.account, lsu, amount)
             .take_all_from_worktop(lsu, "lsu")
             .call_method_with_name_lookup(e.desk, "request_lsu_sale", |l| (l.proof("rider"), l.bucket("lsu"), min_x, min_h, bob.account))
-            .deposit_batch(bob.account)
+            .deposit_batch(bob.account, ManifestExpression::EntireWorktop)
             .build();
         e.ledger.execute_manifest(m, signer(&bob))
     };
