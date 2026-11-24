@@ -97,8 +97,13 @@ export type DeskInfo = {
   nextLsuId: number
   lsuBought: { address: string; amount: string }[]
   lsuHardPaid: number
+  poolEnabled: boolean
+  poolShare: string
+  poolOutstanding: number
+  poolPlatformShare: number
+  poolProfitTotal: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -140,6 +145,11 @@ export async function loadDeskInfo() {
     nextLsuId: Number(state.next_lsu_request_id ?? 1),
     lsuBought: (state.lsu_bought ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
     lsuHardPaid: Number(state.lsu_hard_paid ?? 0),
+    poolEnabled: state.pool_enabled === true,
+    poolShare: state.pool_share ?? '',
+    poolOutstanding: Number(state.pool_outstanding_cost ?? 0),
+    poolPlatformShare: Number(state.pool_platform_share ?? 0),
+    poolProfitTotal: Number(state.pool_profit_total ?? 0),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -233,6 +243,13 @@ export async function getLsuXrdValue(lsu: string, amount: number): Promise<numbe
   const vault = st.stake_xrd_vault?.entity_address ?? st.stake_xrd_vault
   const xrd = await getVaultAmount(vault)
   return (amount * xrd) / t.supply
+}
+
+/** Aktualna podaż tokena (np. udziałów puli). */
+export async function getSupply(resource: string): Promise<number> {
+  if (!resource) return 0
+  const r = await post('/state/entity/details', { addresses: [resource] })
+  return Number(r.items?.[0]?.details?.total_supply ?? 0)
 }
 
 /** Ile odkupionego LSU leży w desku. */

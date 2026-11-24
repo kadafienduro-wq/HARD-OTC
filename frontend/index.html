@@ -160,6 +160,38 @@
           <thead><tr><th>#</th><th>Staked XRD</th><th>HARD</th><th>Status</th><th></th></tr></thead>
           <tbody id="lsu-mine"></tbody>
         </table>
+
+        <div id="pool-section" hidden>
+          <h3>Community buyback pool</h3>
+          <p class="muted">Add HARD to the pool that pays for staked XRD. When the bought staked XRD is unstaked and turned back into HARD, the discount profit is shared: <b id="pool-cut-text">–</b> goes to the desk treasury, the rest increases the value of pool shares (HBPS). You can redeem shares any time while the pool has free HARD; HARD tied up in staked XRD being unstaked is redeemable after settlement. Past results don't guarantee future results; only add what you can afford to have locked for a while.</p>
+          <div class="stats">
+            <div class="stat"><span>Pool value</span><b id="pool-nav">–</b></div>
+            <div class="stat"><span>Free HARD</span><b id="pool-free">–</b></div>
+            <div class="stat"><span>In staked XRD (unstaking)</span><b id="pool-out">–</b></div>
+            <div class="stat"><span>1 share =</span><b id="pool-price">–</b></div>
+            <div class="stat"><span>Your shares</span><b id="pool-mine">–</b></div>
+            <div class="stat"><span>Profit shared so far</span><b id="pool-profit">–</b></div>
+          </div>
+          <div class="split">
+            <div class="box">
+              <h3>Add HARD</h3>
+              <p class="muted" id="pool-dep-note"></p>
+              <div class="inline">
+                <input id="pool-dep" type="number" min="0" step="any" placeholder="HARD to add" />
+                <button id="pool-dep-btn" class="primary">Add to pool</button>
+              </div>
+            </div>
+            <div class="box">
+              <h3>Redeem shares</h3>
+              <p class="muted">You get HARD at the current share value.</p>
+              <div class="inline">
+                <input id="pool-wd" type="number" min="0" step="any" placeholder="Shares (HBPS)" />
+                <button id="pool-wd-max" type="button">Max</button>
+                <button id="pool-wd-btn">Redeem</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- TREASURY -->
@@ -279,7 +311,7 @@
             <h3>Settings</h3>
             <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
             <label class="fld">Discount for sellers (%)
-              <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 15 or 20" />
+              <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 10 or 15" />
               <small class="hint" id="adm-lsu-disc-hint">Sellers get the LSU value minus this %.</small>
             </label>
             <label class="fld">Max HARD per request
@@ -308,6 +340,34 @@
             </div>
           </div>
         </div>
+        <div class="admin-grid">
+          <div class="box">
+            <h3>Community pool</h3>
+            <p class="muted">Lets anyone add HARD to the buyback pool for a share of the discount profit. Status: <b id="adm-pool-status">–</b> · Your cut of profit: <b id="adm-pool-cut-now">–</b> · Shares issued: <b id="adm-pool-supply">–</b></p>
+            <label class="fld">Your cut of profit (%)
+              <input id="adm-pool-cut" type="number" min="0" max="100" step="1" placeholder="e.g. 30" />
+            </label>
+            <div class="inline">
+              <button id="adm-pool-on" class="primary">Save &amp; open pool</button>
+              <button id="adm-pool-off">Close deposits</button>
+            </div>
+            <button id="adm-pool-init" style="margin-top:8px" hidden>Mint my shares for HARD already in the pool</button>
+            <p class="muted" id="adm-pool-init-note" hidden>The pool already holds your HARD. Mint your shares first, otherwise new depositors would get a part of it.</p>
+          </div>
+          <div class="box">
+            <h3>Settle unstaked XRD</h3>
+            <p class="muted">After unstaking and buying back HARD, return it here. Outstanding cost (HARD paid for staked XRD not yet settled): <b id="adm-out-now">–</b></p>
+            <label class="fld">HARD returned to pool
+              <input id="adm-settle-amt" type="number" min="0" step="any" placeholder="HARD you bought back" />
+            </label>
+            <label class="fld">Cost of these staked XRD (HARD)
+              <input id="adm-settle-cost" type="number" min="0" step="any" placeholder="HARD originally paid" />
+            </label>
+            <small class="hint" id="adm-settle-hint"></small>
+            <button id="adm-settle-btn" class="primary">Settle</button>
+          </div>
+        </div>
+
         <h3>Pending requests</h3>
         <table class="stack">
           <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>HARD to pay</th><th></th></tr></thead>

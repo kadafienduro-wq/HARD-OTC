@@ -4,7 +4,7 @@ import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
-  getLsuRequests, getLsuXrdValue, getLsuHoldings, type LsuRequest,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -22,6 +22,7 @@ let loaded = false
 let lsuRequests: LsuRequest[] = []
 let buybackPool = 0
 let lsuHoldings: { address: string; amount: number }[] = []
+let poolSupply = 0
 const lsuValue = new Map<string, number>() // request id -> XRD value now
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
@@ -158,9 +159,10 @@ async function refreshAll() {
       getVaultAmount(desk.burnedVault).catch(() => 0),
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
-    ;[lsuRequests, buybackPool] = await Promise.all([
+    ;[lsuRequests, buybackPool, poolSupply] = await Promise.all([
       getLsuRequests().catch(() => []),
       getVaultAmount(desk.buybackVault).catch(() => 0),
+      getSupply(desk.poolShare).catch(() => 0),
     ])
     ;[stats, treasuryAll] = await Promise.all([
       getRiderStats(offers.map((o) => o.seller)).catch(() => new Map()),
@@ -198,6 +200,7 @@ function render() {
   renderMine()
   renderLock()
   renderStaked()
+  renderPool()
   renderTreasury()
   renderAdmin()
   if (($('#create-dialog') as HTMLDialogElement).open) updateCreateSummary()
@@ -431,6 +434,47 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   () => send(M.requestLsuSale(account!, myRider(), lsu, String(amount), String(+min.toFixed(6))), 'Sale request sent. Waiting for review.'))
 })
 
+// ---------- Community pool ----------
+const poolNav = () => buybackPool + desk.poolOutstanding
+const sharePrice = () => (poolSupply > 0 ? poolNav() / poolSupply : 1)
+
+function renderPool() {
+  const myShares = balanceOf(desk.poolShare)
+  $('#pool-section').hidden = !desk.poolEnabled && myShares <= 0
+  $('#pool-cut-text').textContent = `${Math.round(desk.poolPlatformShare * 100)}%`
+  $('#pool-nav').textContent = `${nf(poolNav(), 2)} HARD`
+  $('#pool-free').textContent = `${nf(buybackPool, 2)} HARD`
+  $('#pool-out').textContent = `${nf(desk.poolOutstanding, 2)} HARD`
+  $('#pool-price').textContent = `${nf(sharePrice(), 6)} HARD`
+  $('#pool-mine').textContent = myShares > 0 ? `${nf(myShares, 2)} ≈ ${nf(myShares * sharePrice(), 2)} HARD` : '0'
+  $('#pool-profit').textContent = `${nf(desk.poolProfitTotal, 2)} HARD`
+  $('#pool-dep-note').textContent = desk.poolEnabled ? 'You receive pool shares (HBPS) at the current share value.' : 'Deposits are closed right now. You can still redeem.'
+  $<HTMLButtonElement>('#pool-dep-btn').disabled = !desk.poolEnabled || !account
+  $<HTMLButtonElement>('#pool-wd-btn').disabled = myShares <= 0
+}
+$('#pool-dep-btn').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#pool-dep').value)
+  if (!account) return toast('Connect your wallet first.')
+  if (!(v > 0)) return toast('Enter how much HARD to add.')
+  if (v > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
+  confirmAction('Add HARD to the buyback pool', [
+    ['You add', `${nf(v)} HARD`],
+    ['You receive', `≈ ${nf(v / sharePrice(), 4)} HBPS shares`],
+    ['Desk cut of profit', `${Math.round(desk.poolPlatformShare * 100)}%`],
+  ], 'Your HARD is used to buy staked XRD at a discount. Part of the pool may be tied up while it unstakes; redeeming then has to wait for settlement.',
+  () => send(M.depositPool(account!, CONFIG.hardResource, String(v)), `${nf(v)} HARD added to the pool`))
+})
+$('#pool-wd-max').addEventListener('click', () => ($<HTMLInputElement>('#pool-wd').value = String(balanceOf(desk.poolShare))))
+$('#pool-wd-btn').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#pool-wd').value)
+  if (!account) return
+  if (!(v > 0) || v > balanceOf(desk.poolShare)) return toast(`Enter up to ${nf(balanceOf(desk.poolShare))} shares.`)
+  const hard = v * sharePrice()
+  if (hard > buybackPool) return toast(`Only ${nf(buybackPool)} HARD is free right now; the rest is in staked XRD being unstaked. Try a smaller amount or after settlement.`)
+  confirmAction('Redeem pool shares', [['You return', `${nf(v)} HBPS`], ['You receive', `≈ ${nf(hard)} HARD`]], '',
+    () => send(M.withdrawPool(account!, desk.poolShare, String(v)), `Redeemed ${nf(v)} shares`))
+})
+
 // ---------- Treasury ----------
 function renderTreasury() {
   const spent = Number(desk.treasuryWithdrawn.find((w) => w.address === CONFIG.hardResource)?.amount ?? 0)
@@ -474,6 +518,15 @@ function renderAdmin() {
   $('#adm-lsu-max-now').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
   $('#adm-price-now').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD (updated ${desk.hardPriceUpdatedAt ? new Date(desk.hardPriceUpdatedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '–'})` : 'not set'
   $('#adm-pool-now').textContent = `${nf(buybackPool)} HARD`
+  $('#adm-pool-status').textContent = desk.poolEnabled ? 'Open' : 'Closed'
+  $('#adm-pool-cut-now').textContent = `${Math.round(desk.poolPlatformShare * 100)}%`
+  $('#adm-pool-supply').textContent = nf(poolSupply, 2)
+  const needInit = poolSupply === 0 && poolNav() > 0
+  $('#adm-pool-init').hidden = !needInit
+  $('#adm-pool-init-note').hidden = !needInit
+  $('#adm-out-now').textContent = `${nf(desk.poolOutstanding)} HARD`
+  $<HTMLButtonElement>('#adm-pool-out').disabled = poolSupply > 0
+  $('#adm-pool-out').title = poolSupply > 0 ? 'Pool has shareholders. Use Settle instead.' : ''
   const pend = lsuRequests.filter((r) => r.status === 'Pending')
   $('#adm-lsu-pending').innerHTML = pend.length
     ? pend.map((r) => {
@@ -542,6 +595,38 @@ $('#adm-lsu-disc').addEventListener('input', () => {
   $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets HARD worth ${nf(100 - d, 2)} XRD.` : 'Enter 0–99.'
 })
 $('#adm-lsu-off').addEventListener('click', () => lsuSettings(false))
+const poolSettings = (enabled: boolean) => {
+  const raw = $<HTMLInputElement>('#adm-pool-cut').value
+  const cut = raw === '' ? desk.poolPlatformShare : Number(raw) / 100
+  if (!(cut >= 0 && cut <= 1)) return toast('Your cut must be between 0 and 100%.')
+  if (enabled && poolSupply === 0 && poolNav() > 0) return toast('First mint your shares for the HARD already in the pool.')
+  adminSend(enabled ? 'Open community pool' : 'Close pool deposits', [['Deposits', enabled ? 'open' : 'closed'], ['Your cut of profit', `${Math.round(cut * 100)}%`]],
+    enabled ? 'Anyone can now add HARD and receive pool shares.' : 'Existing shareholders can still redeem.',
+    () => M.adminSetPool(account!, desk.adminBadge, enabled, String(cut)), enabled ? 'Community pool opened' : 'Pool deposits closed')
+}
+$('#adm-pool-on').addEventListener('click', () => poolSettings(true))
+$('#adm-pool-off').addEventListener('click', () => poolSettings(false))
+$('#adm-pool-init').addEventListener('click', () =>
+  adminSend('Mint your pool shares', [['Pool value', `${nf(poolNav())} HARD`], ['You receive', `${nf(poolNav())} HBPS`]], '',
+    () => M.adminMintInitialShares(account!, desk.adminBadge), 'Initial shares minted'))
+const settleHint = () => {
+  const a = Number($<HTMLInputElement>('#adm-settle-amt').value || 0)
+  const c = Number($<HTMLInputElement>('#adm-settle-cost').value || 0)
+  const profit = a - c
+  $('#adm-settle-hint').textContent = a && c ? (profit > 0 ? `Profit ${nf(profit)} HARD: ${nf(profit * desk.poolPlatformShare)} to treasury, ${nf(profit * (1 - desk.poolPlatformShare))} to the pool.` : `Loss of ${nf(-profit)} HARD is carried by the pool.`) : ''
+}
+$('#adm-settle-amt').addEventListener('input', settleHint)
+$('#adm-settle-cost').addEventListener('input', settleHint)
+$('#adm-settle-btn').addEventListener('click', () => {
+  const a = Number($<HTMLInputElement>('#adm-settle-amt').value || 0)
+  const c = Number($<HTMLInputElement>('#adm-settle-cost').value || 0)
+  if (!(a > 0)) return toast('Enter how much HARD you return.')
+  if (!(c >= 0) || c > desk.poolOutstanding) return toast(`Cost must be between 0 and ${nf(desk.poolOutstanding)} HARD.`)
+  if (a > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
+  const profit = Math.max(0, a - c)
+  adminSend('Settle unstaked XRD', [['HARD returned', `${nf(a)} HARD`], ['Cost settled', `${nf(c)} HARD`], ['To treasury', `${nf(profit * desk.poolPlatformShare)} HARD`], ['To pool', `${nf(a - profit * desk.poolPlatformShare)} HARD`]], '',
+    () => M.adminSettlePool(account!, desk.adminBadge, CONFIG.hardResource, String(a), String(c)), 'Pool settled')
+})
 $('#adm-price-btn').addEventListener('click', () => {
   const v = Number($<HTMLInputElement>('#adm-price').value)
   if (!(v > 0)) return toast('Enter the HARD price in XRD, e.g. 0.07.')

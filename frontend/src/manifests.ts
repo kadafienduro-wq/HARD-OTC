@@ -137,3 +137,25 @@ CALL_METHOD Address("${desk()}") "withdraw_buyback_hard";${depositAll(account)}`
 
 export const adminWithdrawLsu = (account: string, adminBadge: string, lsu: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_lsu" Address("${lsu}");${depositAll(account)}`
+
+// ---------- Wspólna pula skupu ----------
+export const depositPool = (account: string, hard: string, amount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("hard");
+CALL_METHOD Address("${desk()}") "deposit_pool" Bucket("hard");${depositAll(account)}`
+
+export const withdrawPool = (account: string, share: string, amount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${share}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${share}") Bucket("shares");
+CALL_METHOD Address("${desk()}") "withdraw_pool" Bucket("shares");${depositAll(account)}`
+
+export const adminSetPool = (account: string, adminBadge: string, enabled: boolean, platformShare: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_pool" ${enabled} Decimal("${platformShare}");`
+
+export const adminMintInitialShares = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "mint_initial_pool_shares";${depositAll(account)}`
+
+export const adminSettlePool = (account: string, adminBadge: string, hard: string, amount: string, cost: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("hard");${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "settle_pool" Bucket("hard") Decimal("${cost}");`

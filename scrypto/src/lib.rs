@@ -224,7 +224,7 @@ mod hard_otc {
         burned_hard: Vault,
         // ---- Skup LSU za HARD ----
         lsu_buyback_enabled: bool,
-        /// jaka część wartości LSU jest wypłacana w HARD, np. 0.8 = −20%, 0.85 = −15%
+        /// jaka część wartości LSU jest wypłacana w HARD, np. 0.9 = −10%, 0.85 = −15%
         lsu_payout: Decimal,
         /// cena HARD w XRD (ile XRD za 1 HARD), ustawiana przez admina
         hard_price_xrd: Decimal,
@@ -333,7 +333,7 @@ mod hard_otc {
                 treasury_withdrawn: IndexMap::new(),
                 burned_hard: Vault::new(hard_resource),
                 lsu_buyback_enabled: false,
-                lsu_payout: dec!("0.8"),
+                lsu_payout: dec!("0.9"),
                 hard_price_xrd: Decimal::ZERO,
                 hard_price_updated_at: Instant::new(0),
                 lsu_max_hard_per_tx: dec!("1000000"),
