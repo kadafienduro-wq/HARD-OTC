@@ -148,11 +148,12 @@
       <!-- STAKED XRD QUICK BUY -->
       <section id="tab-staked" hidden>
         <div class="row"><h2>We buy your staked XRD</h2><span class="pill" id="lsu-status">–</span></div>
-        <p class="muted">HARD ADV buys staked XRD (LSU). No need to wait about a week for unstaking: sell your LSU to us and get HARD right away. You receive <b id="lsu-payout-text">–</b> of your LSU's current XRD value, paid in HARD at the live Ociswap price at the moment the sale is completed. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
+        <p class="muted">HARD ADV buys staked XRD (LSU). No need to wait about a week for unstaking: sell your LSU to us and get paid right away. You receive <b id="lsu-payout-text">–</b> of your LSU's current XRD value, paid as <b id="lsu-split-text">–</b>. The HARD part uses the live Ociswap price at the moment the sale is completed. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
         <div class="stats">
           <div class="stat"><span>You receive</span><b id="lsu-payout">–</b></div>
           <div class="stat"><span>HARD price now (Ociswap)</span><b id="lsu-price">–</b></div>
-          <div class="stat"><span>HARD available</span><b id="lsu-pool">–</b></div>
+          <div class="stat"><span>Paid as</span><b id="lsu-split">–</b></div>
+          <div class="stat"><span>Available to pay</span><b id="lsu-pool">–</b></div>
           <div class="stat"><span>Max per request</span><b id="lsu-max">–</b></div>
         </div>
 
@@ -169,7 +170,7 @@
 
         <h3>My requests</h3>
         <table class="stack">
-          <thead><tr><th>#</th><th>Staked XRD</th><th>HARD</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Staked XRD</th><th>You get</th><th>Status</th><th></th></tr></thead>
           <tbody id="lsu-mine"></tbody>
         </table>
 
@@ -225,6 +226,7 @@
         </div>
         <div class="stats">
           <div class="stat"><span>Staked XRD bought</span><b id="lsu-bought">–</b></div>
+          <div class="stat"><span>XRD paid for staked XRD</span><b id="lsu-paid-xrd">–</b></div>
           <div class="stat"><span>HARD paid for staked XRD</span><b id="lsu-paid">–</b></div>
         </div>
         <h3>Fees earned (all time)</h3>
@@ -248,7 +250,7 @@
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
           <li><b>Featuring (★).</b> After posting, sellers can pay HARD per 24 hours to pin their offer at the top of the market. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
-          <li><b>We buy staked XRD.</b> Sell your LSU to HARD ADV for HARD at a discount to its current value (shown on the “We buy staked XRD” tab). Requests are reviewed manually; you can cancel until then.</li>
+          <li><b>We buy staked XRD.</b> Sell your LSU to HARD ADV and get paid mostly in XRD plus a part in HARD, at a discount to its current value (shown on the “We buy staked XRD” tab). Requests are reviewed manually; you can cancel until then.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
@@ -310,10 +312,13 @@
         <div class="admin-grid">
           <div class="box">
             <h3>Settings</h3>
-            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
+            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Split: <b id="adm-lsu-split-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
             <label class="fld">Discount for sellers (%)
               <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 10 or 15" />
               <small class="hint" id="adm-lsu-disc-hint">Sellers get the LSU value minus this %.</small>
+            </label>
+            <label class="fld">Paid in XRD (%) · rest in HARD
+              <input id="adm-lsu-split" type="number" min="0" max="100" step="1" placeholder="e.g. 80" />
             </label>
             <label class="fld">Max HARD per request
               <input id="adm-lsu-max" type="number" min="0" step="any" placeholder="e.g. 500000" />
@@ -330,6 +335,15 @@
             <div class="inline">
               <input id="adm-price" type="number" min="0" step="any" placeholder="e.g. 0.07" />
               <button id="adm-price-btn" class="primary">Save</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Buyback XRD wallet</h3>
+            <p class="muted">The XRD you set aside to pay the XRD part to sellers. Available now: <b id="adm-xrd-now">–</b></p>
+            <div class="inline">
+              <input id="adm-fund-xrd" type="number" min="0" step="any" placeholder="XRD to add" />
+              <button id="adm-fund-xrd-btn" class="primary">Add XRD</button>
+              <button id="adm-xrd-out">Take it back</button>
             </div>
           </div>
           <div class="box">
@@ -372,7 +386,7 @@
 
         <h3>Pending requests</h3>
         <table class="stack">
-          <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>HARD to pay</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>To pay</th><th></th></tr></thead>
           <tbody id="adm-lsu-pending"></tbody>
         </table>
         <h3>Bought staked XRD (to unstake)</h3>

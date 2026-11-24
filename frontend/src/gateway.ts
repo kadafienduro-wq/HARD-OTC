@@ -102,8 +102,11 @@ export type DeskInfo = {
   poolOutstanding: number
   poolPlatformShare: number
   poolProfitTotal: number
+  buybackXrdVault: string
+  lsuXrdShare: number
+  lsuXrdPaid: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -150,6 +153,9 @@ export async function loadDeskInfo() {
     poolOutstanding: Number(state.pool_outstanding_cost ?? 0),
     poolPlatformShare: Number(state.pool_platform_share ?? 0),
     poolProfitTotal: Number(state.pool_profit_total ?? 0),
+    buybackXrdVault: state.buyback_xrd ?? '',
+    lsuXrdShare: Number(state.lsu_xrd_share ?? 0),
+    lsuXrdPaid: Number(state.lsu_xrd_paid ?? 0),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -205,9 +211,11 @@ export type LsuRequest = {
   account: string
   lsu: string
   lsuAmount: number
+  minXrdOut: number
   minHardOut: number
   createdAt: number
   status: 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled'
+  xrdPaid: number
   hardPaid: number
 }
 
@@ -226,8 +234,8 @@ export async function getLsuRequests(): Promise<LsuRequest[]> {
       const r = decode(e.value.programmatic_json)
       out.push({
         id: String(e.key.programmatic_json.value), requester: r.requester, account: r.account, lsu: r.lsu,
-        lsuAmount: Number(r.lsu_amount), minHardOut: Number(r.min_hard_out), createdAt: toMs(r.created_at),
-        status: r.status.variant, hardPaid: Number(r.hard_paid),
+        lsuAmount: Number(r.lsu_amount), minXrdOut: Number(r.min_xrd_out ?? 0), minHardOut: Number(r.min_hard_out), createdAt: toMs(r.created_at),
+        status: r.status.variant, xrdPaid: Number(r.xrd_paid ?? 0), hardPaid: Number(r.hard_paid),
       })
     }
   }
