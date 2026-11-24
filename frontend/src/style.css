@@ -283,3 +283,13 @@ button.act:hover { background: var(--red); color: #fff; border-color: var(--red)
 .quick[hidden] { display: none !important; }
 .quick button { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 0 10px; min-height: 36px; font-size: 11px; letter-spacing: .06em; cursor: pointer; }
 .quick button:hover { color: var(--text, #fff); border-color: var(--muted); }
+
+.qrow { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.qrow span { color: var(--muted); }
+.qrow b { font-size: 17px; text-align: right; }
+.qrow b small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: .04em; }
+.qrow.big b { font-size: 24px; color: #fff; }
+.qrow.big b i { font-style: normal; color: var(--muted); margin: 0 4px; }
+.qbreak { margin: 10px 0 4px; padding: 10px 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+.qbreak div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; }
+.qbreak span { color: var(--muted); }
