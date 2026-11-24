@@ -1,4 +1,4 @@
-//! HARD OTC Desk v5 — escrow OTC na Radix (gotowy pod mainnet).
+//! HARD OTC Desk v8 — escrow OTC na Radix (po audycie bezpieczeństwa).
 //!
 //! 1. HARD OTC Badge (darmowe NFT) = tożsamość na desku.
 //! 2. Sprzedający blokuje token w escrow (`create_offer`), płaci opłatę za ogłoszenie w HARD
@@ -15,10 +15,11 @@
 //!     Admin ręcznie akceptuje albo odrzuca (LSU wraca). Wypłata = wartość LSU w XRD × (1 − prowizja),
 //!     z czego część w XRD (domyślnie 80%, z portfela XRD admina) i reszta w HARD (20%, po cenie HARD
 //!     z chwili akceptacji). Użytkownik może anulować, dopóki zlecenie czeka.
-//! 11. Wspólna pula skupu (przełącznik admina, domyślnie WYŁĄCZONA): każdy może wpłacić HARD do puli
-//!     skupu i dostaje udziały. Zysk z dyskonta (po odstakowaniu i rozliczeniu przez admina) dzielony:
-//!     prowizja platformy -> skarbiec, reszta zwiększa wartość udziałów. Wypłata udziałów w każdej chwili,
-//!     o ile w puli jest wolny HARD.
+//! 11. Bezpieczeństwo (v8): badge nieprzenośny (środki nie przechodzą na kogoś innego), opłata za handel
+//!     zamrożona w ofercie w chwili wystawienia, kupujący podaje minimum, które musi dostać, wygasłe oferty
+//!     może zwrócić KAŻDY — zawsze tylko na konto sprzedającego, admin może zwrócić ofertę (np. podejrzany
+//!     token) — także tylko na konto sprzedającego, tryb "tylko zweryfikowane tokeny" (domyślnie włączony).
+//!     Brak wspólnej puli: admin nie zarządza cudzymi środkami.
 //! 9. Wypłata locka w dwóch krokach z okresem oczekiwania (domyślnie 7 dni).
 //!
 //! Obie strony oferty: zasoby fungible (tokeny, LSU, LP). NFT — w kolejnej wersji.
@@ -57,6 +58,8 @@ pub struct Offer {
     pub featured_until: Instant,
     pub reserved_buyer: Option<NonFungibleLocalId>,
     pub status: OfferStatus,
+    /// opłata za handel od strony obowiązująca w chwili wystawienia (admin nie podniesie jej istniejącym ofertom)
+    pub fee_rate: Decimal,
 }
 
 #[derive(ScryptoSbor, Clone, Default)]
@@ -158,6 +161,9 @@ mod hard_otc {
             create_offer => PUBLIC;
             accept_offer => PUBLIC;
             cancel_offer => PUBLIC;
+            reclaim_expired_offer => PUBLIC;
+            admin_return_offer => restrict_to: [OWNER];
+            set_only_verified => restrict_to: [OWNER];
             promote_offer => PUBLIC;
             request_lsu_sale => PUBLIC;
             cancel_lsu_sale => PUBLIC;
@@ -183,11 +189,6 @@ mod hard_otc {
             set_lsu_split => restrict_to: [OWNER];
             set_lsu_limits => restrict_to: [OWNER];
             set_trading_fee => restrict_to: [OWNER];
-            set_pool => restrict_to: [OWNER];
-            mint_initial_pool_shares => restrict_to: [OWNER];
-            settle_pool => restrict_to: [OWNER];
-            deposit_pool => PUBLIC;
-            withdraw_pool => PUBLIC;
             withdraw_buyback_hard => restrict_to: [OWNER];
             withdraw_lsu => restrict_to: [OWNER];
             remove_verified => restrict_to: [OWNER];
@@ -267,15 +268,6 @@ mod hard_otc {
         lsu_bought: IndexMap<ResourceAddress, Decimal>,
         lsu_hard_paid: Decimal,
 
-        // ---- Wspólna pula skupu ----
-        pool_enabled: bool,
-        pool_share: FungibleResourceManager,
-        /// HARD wydane na LSU, jeszcze nierozliczone (liczone do wartości puli po koszcie)
-        pool_outstanding_cost: Decimal,
-        /// część zysku dla platformy (do skarbca), np. 0.3 = 30%
-        pool_platform_share: Decimal,
-        /// łącznie zysk przekazany uczestnikom puli
-        pool_profit_total: Decimal,
 
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
         /// HARD w trakcie wypłaty (nie liczą się do rabatu)
@@ -285,6 +277,8 @@ mod hard_otc {
         /// okres oczekiwania na wypłatę locka, w sekundach
         unlock_period_seconds: i64,
         paused: bool,
+        /// tylko tokeny z listy zweryfikowanych (chroni przed tokenami, które wystawca może odebrać lub zamrozić)
+        only_verified: bool,
     }
 
     impl OtcDesk {
@@ -294,23 +288,6 @@ mod hard_otc {
 
             let (address_reservation, component_address) =
                 Runtime::allocate_component_address(OtcDesk::blueprint_id());
-
-            let pool_share = ResourceBuilder::new_fungible(OwnerRole::None)
-                .divisibility(DIVISIBILITY_MAXIMUM)
-                .metadata(metadata!(init {
-                    "name" => "HARD Buyback Pool Share", locked;
-                    "symbol" => "HBPS", locked;
-                    "description" => "Share of the HARD OTC staked-XRD buyback pool.", locked;
-                }))
-                .mint_roles(mint_roles! {
-                    minter => rule!(require(global_caller(component_address)));
-                    minter_updater => rule!(deny_all);
-                })
-                .burn_roles(burn_roles! {
-                    burner => rule!(require(global_caller(component_address)));
-                    burner_updater => rule!(deny_all);
-                })
-                .create_with_no_initial_supply();
 
             let admin_badge = ResourceBuilder::new_fungible(OwnerRole::None)
                 .divisibility(DIVISIBILITY_NONE)
@@ -329,10 +306,15 @@ mod hard_otc {
                     minter => rule!(require(global_caller(component_address)));
                     minter_updater => rule!(deny_all);
                 })
+                // Nieprzenośny: zostaje na koncie, na które trafił. Oferty i lock nie przejdą na kogoś innego.
+                .withdraw_roles(withdraw_roles! {
+                    withdrawer => rule!(deny_all);
+                    withdrawer_updater => rule!(deny_all);
+                })
                 .create_with_no_initial_supply();
 
             let component = Self {
-                version: 7,
+                version: 8,
                 admin_badge: admin_badge.resource_address(),
                 rider_badge,
                 next_badge_number: 1,
@@ -380,16 +362,12 @@ mod hard_otc {
                 lsu_vaults: KeyValueStore::new(),
                 lsu_bought: IndexMap::new(),
                 lsu_hard_paid: Decimal::ZERO,
-                pool_enabled: false,
-                pool_share,
-                pool_outstanding_cost: Decimal::ZERO,
-                pool_platform_share: dec!("0.3"),
-                pool_profit_total: Decimal::ZERO,
                 hard_locks: KeyValueStore::new(),
                 unlocking: KeyValueStore::new(),
                 unlock_ready_at: KeyValueStore::new(),
                 unlock_period_seconds: 7 * 24 * 3600,
                 paused: false,
+                only_verified: true,
             }
             .instantiate()
             .prepare_to_globalize(OwnerRole::Fixed(rule!(require(
@@ -405,24 +383,8 @@ mod hard_otc {
             (component, admin_badge)
         }
 
-        /// Wygodny start na Stokenet: tworzy testowy token HARD (1 000 000 szt.)
-        /// i od razu desk, który go używa. Zwraca (desk, badge admina, HARD).
-        pub fn instantiate_with_test_hard() -> (Global<OtcDesk>, FungibleBucket, FungibleBucket) {
-            let hard = ResourceBuilder::new_fungible(OwnerRole::None)
-                .divisibility(DIVISIBILITY_MAXIMUM)
-                .metadata(metadata!(init {
-                    "name" => "HARD (test)", locked;
-                    "symbol" => "HARD", locked;
-                    "description" => "Stokenet test token. No monetary value.", locked;
-                }))
-                .mint_initial_supply(1_000_000);
-            let (desk, admin) = Self::instantiate(hard.resource_address());
-            (desk, admin, hard)
-        }
-
         // ---------- Rider badge ----------
 
-        /// Wybija kolejny numerowany HARD OTC Badge (#1, #2, …).
         /// Odbiór HARD z kranika – raz na badge, tylko gdy admin go włączył i zasilił.
         pub fn claim_faucet(&mut self, rider: Proof) -> Bucket {
             let who = self.check_rider(rider);
@@ -450,6 +412,7 @@ mod hard_otc {
             Self::take_part(&mut self.faucet, amount)
         }
 
+        /// Wybija kolejny numerowany HARD OTC Badge (#1, #2, …). Badge jest nieprzenośny.
         pub fn mint_rider_badge(&mut self) -> NonFungibleBucket {
             let number = self.next_badge_number;
             self.next_badge_number += 1;
@@ -512,6 +475,12 @@ mod hard_otc {
             assert!(sell_resource.is_fungible(), "v1: only fungible assets can be sold");
             assert!(ask_resource.is_fungible(), "v1: only fungible payment assets");
             assert!(sell_resource != ask_resource, "Sell and ask asset must differ");
+            if self.only_verified {
+                assert!(
+                    self.verified.contains(&sell_resource) && self.verified.contains(&ask_resource),
+                    "Only verified tokens can be traded right now"
+                );
+            }
             assert!(sell_amount > Decimal::ZERO, "Nothing to sell");
             assert!(ask_amount > Decimal::ZERO, "Price must be positive");
             assert!(
@@ -552,6 +521,7 @@ mod hard_otc {
                     featured_until: now,
                     reserved_buyer,
                     status: OfferStatus::Open,
+                    fee_rate: self.fee_rate_per_side,
                 },
             );
             self.escrow.insert(offer_id, Vault::with_bucket(sell));
@@ -572,7 +542,13 @@ mod hard_otc {
 
         /// Atomowe rozliczenie. Kupujący płaci całość (albo część, jeśli oferta na to pozwala).
         /// Zwraca (kupiony token minus opłata kupującego, reszta płatności).
-        pub fn accept_offer(&mut self, offer_id: u64, rider: Proof, mut payment: Bucket) -> (Bucket, Bucket) {
+        pub fn accept_offer(
+            &mut self,
+            offer_id: u64,
+            rider: Proof,
+            mut payment: Bucket,
+            min_receive: Decimal,
+        ) -> (Bucket, Bucket) {
             assert!(!self.paused, "Desk is paused");
             let buyer = self.check_rider(rider);
 
@@ -615,18 +591,24 @@ mod hard_otc {
             };
             let received_gross = asset.amount();
             assert!(received_gross > Decimal::ZERO, "Amount too small to fill");
+            // Ochrona: w escrow musi być tyle, ile obiecano (np. wystawca tokena nic z niego nie odebrał).
+            if full {
+                assert!(received_gross >= offer.sell_remaining, "Escrow holds less than offered");
+            }
 
             // Strona sprzedającego: zapłata minus jego opłata.
             let mut to_seller = payment.take(pay);
             let seller_fee = to_seller.take_advanced(
-                self.fee_for(&offer.seller, pay),
+                self.fee_for_rate(&offer.seller, pay, offer.fee_rate),
                 WithdrawStrategy::Rounded(RoundingMode::ToZero),
             );
             // Strona kupującego: token minus jego opłata.
             let buyer_fee = asset.take_advanced(
-                self.fee_for(&buyer, received_gross),
+                self.fee_for_rate(&buyer, received_gross, offer.fee_rate),
                 WithdrawStrategy::Rounded(RoundingMode::ToZero),
             );
+            // Kupujący nie dostanie mniej, niż widział (zaokrąglenia, zmiany stanu między podglądem a podpisem).
+            assert!(asset.amount() >= min_receive, "You would receive less than your minimum");
             let seller_fee_taken = seller_fee.amount();
             let buyer_fee_taken = buyer_fee.amount();
             self.collect_fee(seller_fee);
@@ -720,6 +702,32 @@ mod hard_otc {
             asset
         }
 
+        /// Zwrot WYGASŁEJ oferty — może wywołać każdy, środki trafiają zawsze na konto sprzedającego.
+        pub fn reclaim_expired_offer(&mut self, offer_id: u64) {
+            let offer = self.offers.get(&offer_id).expect("Offer not found").clone();
+            assert!(
+                Clock::current_time_is_at_or_after(offer.expires_at, TimePrecision::Second),
+                "Offer has not expired yet"
+            );
+            self.return_to_seller(offer_id, offer);
+        }
+
+        /// Admin zwraca otwartą ofertę sprzedającemu (np. podejrzany token). Środki idą tylko na konto sprzedającego.
+        pub fn admin_return_offer(&mut self, offer_id: u64) {
+            let offer = self.offers.get(&offer_id).expect("Offer not found").clone();
+            self.return_to_seller(offer_id, offer);
+        }
+
+        fn return_to_seller(&mut self, offer_id: u64, mut offer: Offer) {
+            assert!(offer.status == OfferStatus::Open, "Offer is not open");
+            let asset = self.escrow.get_mut(&offer_id).unwrap().take_all();
+            let mut account = offer.seller_account;
+            account.try_deposit_or_abort(asset, None);
+            offer.status = OfferStatus::Cancelled;
+            self.offers.insert(offer_id, offer);
+            Runtime::emit_event(OfferCancelledEvent { offer_id });
+        }
+
         // ---------- Skup LSU za HARD ----------
 
         /// Zlecenie sprzedaży LSU za HARD. LSU czeka w escrow na decyzję admina.
@@ -739,6 +747,16 @@ mod hard_otc {
             let lsu_resource = lsu.resource_address();
             let lsu_amount = lsu.amount();
             assert!(lsu_amount > Decimal::ZERO, "Nothing to sell");
+            // Minimum chroni sprzedającego przed zmianą ceny / prowizji / podziału przez admina.
+            assert!(min_xrd_out >= Decimal::ZERO && min_hard_out >= Decimal::ZERO, "Minimums cannot be negative");
+            assert!(
+                self.lsu_xrd_share.is_zero() || min_xrd_out > Decimal::ZERO,
+                "Set a minimum XRD amount"
+            );
+            assert!(
+                self.lsu_xrd_share == Decimal::ONE || min_hard_out > Decimal::ZERO,
+                "Set a minimum HARD amount"
+            );
             // sprawdza, że to prawdziwe LSU (panic, jeśli nie) i limit na zgłoszenie
             let value = Self::lsu_xrd_value(lsu_resource, lsu_amount);
             assert!(
@@ -816,7 +834,6 @@ mod hard_otc {
             let hard_paid = hard_bucket.amount();
             req.account.try_deposit_or_abort(xrd_bucket, None);
             req.account.try_deposit_or_abort(hard_bucket, None);
-            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_add(hard_paid).unwrap();
 
             let lsu = self.lsu_escrow.get_mut(&request_id).unwrap().take_all();
             let exists = self.lsu_vaults.get(&req.lsu).is_some();
@@ -874,6 +891,14 @@ mod hard_otc {
         pub fn request_unlock(&mut self, rider: Proof, amount: Decimal) {
             let who = self.check_rider(rider);
             assert!(amount > Decimal::ZERO, "Amount must be positive");
+            // Nie zerujemy zegara HARD, który już czeka gotowy do odbioru — najpierw trzeba go odebrać.
+            if let Some(ready) = self.unlock_ready_at.get(&who).map(|r| *r) {
+                let waiting = self.unlocking.get(&who).map(|v| v.amount()).unwrap_or(Decimal::ZERO);
+                assert!(
+                    waiting.is_zero() || !Clock::current_time_is_at_or_after(ready, TimePrecision::Second),
+                    "Withdraw your unlocked HARD first"
+                );
+            }
             let bucket = {
                 let mut lock = self.hard_locks.get_mut(&who).expect("Nothing locked");
                 assert!(lock.amount() >= amount, "Not enough HARD locked");
@@ -1018,12 +1043,7 @@ mod hard_otc {
 
         /// `amount` = 0 oznacza całość.
         pub fn withdraw_buyback_hard(&mut self, amount: Decimal) -> Bucket {
-            assert!(self.pool_shares_supply().is_zero(), "Pool has shareholders, use settle_pool instead");
-            let b = Self::take_part(&mut self.buyback_hard, amount);
-            if self.buyback_hard.amount().is_zero() {
-                self.pool_outstanding_cost = Decimal::ZERO;
-            }
-            b
+            Self::take_part(&mut self.buyback_hard, amount)
         }
 
         fn take_part(vault: &mut Vault, amount: Decimal) -> Bucket {
@@ -1033,95 +1053,6 @@ mod hard_otc {
             } else {
                 vault.take_advanced(amount, WithdrawStrategy::Rounded(RoundingMode::ToZero))
             }
-        }
-
-        // ---------- Wspólna pula skupu ----------
-
-        /// Włącz/wyłącz wpłaty do wspólnej puli i ustaw prowizję platformy od zysku (0.3 = 30%).
-        /// Wyłączenie blokuje tylko nowe wpłaty — wypłaty udziałów zawsze działają.
-        pub fn set_pool(&mut self, enabled: bool, platform_share: Decimal) {
-            assert!(platform_share >= Decimal::ZERO && platform_share <= Decimal::ONE, "Share must be 0..1");
-            self.pool_enabled = enabled;
-            self.pool_platform_share = platform_share;
-        }
-
-        /// Gdy pula ma już HARD admina, a nie ma udziałów: wybija adminowi udziały równe jej wartości,
-        /// żeby jego HARD nie został rozdany nowym uczestnikom.
-        pub fn mint_initial_pool_shares(&mut self) -> FungibleBucket {
-            assert!(self.pool_shares_supply().is_zero(), "Shares already exist");
-            let nav = self.pool_nav();
-            assert!(nav > Decimal::ZERO, "Pool is empty");
-            self.pool_share.mint(nav)
-        }
-
-        /// Wpłata HARD do puli -> udziały proporcjonalnie do wartości puli.
-        pub fn deposit_pool(&mut self, hard: Bucket) -> FungibleBucket {
-            assert!(self.pool_enabled, "Pool deposits are closed");
-            assert!(!self.paused, "Desk is paused");
-            assert!(hard.resource_address() == self.hard_resource, "Deposit HARD");
-            let amount = hard.amount();
-            assert!(amount > Decimal::ZERO, "Nothing to deposit");
-            let supply = self.pool_shares_supply();
-            let nav = self.pool_nav();
-            let shares = if supply.is_zero() {
-                assert!(nav.is_zero(), "Admin must mint initial shares first");
-                amount
-            } else {
-                amount.checked_mul(supply).unwrap().checked_div(nav).unwrap()
-            };
-            self.buyback_hard.put(hard);
-            self.pool_share.mint(shares)
-        }
-
-        /// Oddaj udziały -> HARD według aktualnej wartości puli (o ile jest wolny HARD).
-        pub fn withdraw_pool(&mut self, shares: FungibleBucket) -> Bucket {
-            assert!(shares.resource_address() == self.pool_share.address(), "Not pool shares");
-            let supply = self.pool_shares_supply();
-            let amount = shares
-                .amount()
-                .checked_mul(self.pool_nav())
-                .unwrap()
-                .checked_div(supply)
-                .unwrap();
-            assert!(
-                self.buyback_hard.amount() >= amount,
-                "Not enough free HARD right now (rest is in staked XRD being unstaked). Try after settlement."
-            );
-            shares.burn();
-            self.buyback_hard
-                .take_advanced(amount, WithdrawStrategy::Rounded(RoundingMode::ToZero))
-        }
-
-        /// Rozliczenie: admin zwraca HARD odkupiony za XRD z odstakowanych LSU.
-        /// `cost` = ile HARD z puli kosztowały te LSU. Zysk: prowizja -> skarbiec, reszta -> pula.
-        pub fn settle_pool(&mut self, mut hard: Bucket, cost: Decimal) {
-            assert!(hard.resource_address() == self.hard_resource, "Settle in HARD");
-            assert!(cost >= Decimal::ZERO && cost <= self.pool_outstanding_cost, "Cost above outstanding");
-            let returned = hard.amount();
-            if returned > cost {
-                let profit = returned.checked_sub(cost).unwrap();
-                let cut = hard.take_advanced(
-                    profit.checked_mul(self.pool_platform_share).unwrap(),
-                    WithdrawStrategy::Rounded(RoundingMode::ToZero),
-                );
-                let cut_amount = cut.amount();
-                self.collect_fee(cut);
-                self.pool_profit_total = self
-                    .pool_profit_total
-                    .checked_add(profit.checked_sub(cut_amount).unwrap())
-                    .unwrap();
-            }
-            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_sub(cost).unwrap();
-            self.buyback_hard.put(hard);
-        }
-
-        fn pool_shares_supply(&self) -> Decimal {
-            self.pool_share.total_supply().unwrap_or(Decimal::ZERO)
-        }
-
-        /// Wartość puli w HARD = wolny HARD + HARD wydany na nierozliczone LSU (po koszcie).
-        fn pool_nav(&self) -> Decimal {
-            self.buyback_hard.amount().checked_add(self.pool_outstanding_cost).unwrap()
         }
 
         /// Wypłata odkupionych LSU (do odstakowania).
@@ -1136,6 +1067,11 @@ mod hard_otc {
                     self.verified.push(r);
                 }
             }
+        }
+
+        /// Tryb "tylko zweryfikowane tokeny" (domyślnie włączony).
+        pub fn set_only_verified(&mut self, on: bool) {
+            self.only_verified = on;
         }
 
         pub fn remove_verified(&mut self, resource: ResourceAddress) {
@@ -1167,6 +1103,10 @@ mod hard_otc {
         }
 
         fn fee_for(&self, rider: &NonFungibleLocalId, amount: Decimal) -> Decimal {
+            self.fee_for_rate(rider, amount, self.fee_rate_per_side)
+        }
+
+        fn fee_for_rate(&self, rider: &NonFungibleLocalId, amount: Decimal, rate: Decimal) -> Decimal {
             let locked = self.locked_amount(rider);
             let mut multiplier = Decimal::ONE;
             for (threshold, m) in self.discount_tiers.iter() {
@@ -1175,7 +1115,7 @@ mod hard_otc {
                 }
             }
             amount
-                .checked_mul(self.fee_rate_per_side)
+                .checked_mul(rate)
                 .unwrap()
                 .checked_mul(multiplier)
                 .unwrap()
