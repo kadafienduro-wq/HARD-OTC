@@ -151,6 +151,10 @@ mod hard_otc {
     enable_method_auth! {
         methods {
             mint_rider_badge => PUBLIC;
+            claim_faucet => PUBLIC;
+            fund_faucet => restrict_to: [OWNER];
+            set_faucet_amount => restrict_to: [OWNER];
+            withdraw_faucet => restrict_to: [OWNER];
             create_offer => PUBLIC;
             accept_offer => PUBLIC;
             cancel_offer => PUBLIC;
@@ -252,6 +256,11 @@ mod hard_otc {
         lsu_daily_limit: Decimal,
         lsu_day_start: i64,
         lsu_day_used: Decimal,
+        /// Kranik HARD (np. dla testerów / akcji promocyjnych): raz na badge, 0 = wyłączony.
+        faucet: Vault,
+        faucet_amount: Decimal,
+        faucet_claimed: KeyValueStore<NonFungibleLocalId, ()>,
+        faucet_given: Decimal,
         /// odkupione LSU (admin wypłaca, odstakowuje, odkupuje HARD)
         lsu_vaults: KeyValueStore<ResourceAddress, Vault>,
         /// łącznie: ile LSU skupiono i ile HARD wydano
@@ -323,7 +332,7 @@ mod hard_otc {
                 .create_with_no_initial_supply();
 
             let component = Self {
-                version: 6,
+                version: 7,
                 admin_badge: admin_badge.resource_address(),
                 rider_badge,
                 next_badge_number: 1,
@@ -364,6 +373,10 @@ mod hard_otc {
                 lsu_daily_limit: dec!("20000"),
                 lsu_day_start: 0,
                 lsu_day_used: Decimal::ZERO,
+                faucet: Vault::new(hard_resource),
+                faucet_amount: Decimal::ZERO,
+                faucet_claimed: KeyValueStore::new(),
+                faucet_given: Decimal::ZERO,
                 lsu_vaults: KeyValueStore::new(),
                 lsu_bought: IndexMap::new(),
                 lsu_hard_paid: Decimal::ZERO,
@@ -410,6 +423,33 @@ mod hard_otc {
         // ---------- Rider badge ----------
 
         /// Wybija kolejny numerowany HARD OTC Badge (#1, #2, …).
+        /// Odbiór HARD z kranika – raz na badge, tylko gdy admin go włączył i zasilił.
+        pub fn claim_faucet(&mut self, rider: Proof) -> Bucket {
+            let who = self.check_rider(rider);
+            assert!(self.faucet_amount > Decimal::ZERO, "Faucet is off");
+            assert!(self.faucet_claimed.get(&who).is_none(), "Already claimed with this badge");
+            assert!(self.faucet.amount() >= self.faucet_amount, "Faucet is empty");
+            self.faucet_claimed.insert(who, ());
+            self.faucet_given = self.faucet_given.checked_add(self.faucet_amount).unwrap();
+            self.faucet.take(self.faucet_amount)
+        }
+
+        pub fn fund_faucet(&mut self, hard: Bucket) {
+            assert!(hard.resource_address() == self.hard_resource, "Faucet holds HARD only");
+            self.faucet.put(hard);
+        }
+
+        /// 0 wyłącza kranik.
+        pub fn set_faucet_amount(&mut self, amount: Decimal) {
+            assert!(amount >= Decimal::ZERO, "Amount cannot be negative");
+            self.faucet_amount = amount;
+        }
+
+        /// `amount` = 0 oznacza całość.
+        pub fn withdraw_faucet(&mut self, amount: Decimal) -> Bucket {
+            Self::take_part(&mut self.faucet, amount)
+        }
+
         pub fn mint_rider_badge(&mut self) -> NonFungibleBucket {
             let number = self.next_badge_number;
             self.next_badge_number += 1;
