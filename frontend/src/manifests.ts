@@ -104,10 +104,10 @@ export const adminSetReservationFee = (account: string, adminBadge: string, amou
 CALL_METHOD Address("${desk()}") "set_reservation_fee" Decimal("${amount}");`
 
 // ---------- Quick buy: stakowane XRD (LSU) za HARD ----------
-export const requestLsuSale = (account: string, riderId: string, lsu: string, amount: string, minHardOut: string) => `
+export const requestLsuSale = (account: string, riderId: string, lsu: string, amount: string, minXrdOut: string, minHardOut: string) => `
 CALL_METHOD Address("${account}") "withdraw" Address("${lsu}") Decimal("${amount}");
 TAKE_ALL_FROM_WORKTOP Address("${lsu}") Bucket("lsu");${riderProof(account, riderId)}
-CALL_METHOD Address("${desk()}") "request_lsu_sale" Proof("rider") Bucket("lsu") Decimal("${minHardOut}") Address("${account}");${depositAll(account)}`
+CALL_METHOD Address("${desk()}") "request_lsu_sale" Proof("rider") Bucket("lsu") Decimal("${minXrdOut}") Decimal("${minHardOut}") Address("${account}");${depositAll(account)}`
 
 export const cancelLsuSale = (account: string, riderId: string, id: string) => `${riderProof(account, riderId)}
 CALL_METHOD Address("${desk()}") "cancel_lsu_sale" ${id}u64 Proof("rider");${depositAll(account)}`
@@ -161,3 +161,17 @@ CALL_METHOD Address("${desk()}") "settle_pool" Bucket("hard") Decimal("${cost}")
 export const adminAcceptLsuAtPrice = (account: string, adminBadge: string, id: string, xrdPerHard: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_hard_price" Decimal("${xrdPerHard}");
 CALL_METHOD Address("${desk()}") "accept_lsu_sale" ${id}u64;`
+
+export const adminFundBuybackXrd = (account: string, adminBadge: string, xrd: string, amount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${xrd}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${xrd}") Bucket("xrd");${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "fund_lsu_buyback_xrd" Bucket("xrd");`
+
+export const adminWithdrawBuybackXrd = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_buyback_xrd";${depositAll(account)}`
+
+export const adminSetLsuLimits = (account: string, adminBadge: string, perTx: string, daily: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_lsu_limits" Decimal("${perTx}") Decimal("${daily}");`
+
+export const adminSetLsuSplit = (account: string, adminBadge: string, xrdShare: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_lsu_split" Decimal("${xrdShare}");`

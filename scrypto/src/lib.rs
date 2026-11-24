@@ -11,10 +11,10 @@
 //! 6. Wyróżnienie oferty (★): 50 HARD za każde 24 h, dokupowane w dowolnym momencie (ustawia admin).
 //! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
 //! 8. Reputacja: liczniki transakcji ridera (sprzedaże, zakupy).
-//! 10. Quick buy staked XRD: użytkownik składa zlecenie sprzedaży LSU (LSU czeka w escrow).
-//!     Admin ręcznie akceptuje (płaci HARD = wartość LSU w XRD × stawka / cena HARD, np. 80% = −20%)
-//!     albo odrzuca (LSU wraca). Użytkownik może anulować, dopóki zlecenie czeka.
-//!     Wartość LSU czytana z walidatora on-chain; cenę HARD w XRD ustawia admin. HARD z puli skupu.
+//! 10. Skup stakowanego XRD: użytkownik składa zlecenie sprzedaży LSU (LSU czeka w escrow).
+//!     Admin ręcznie akceptuje albo odrzuca (LSU wraca). Wypłata = wartość LSU w XRD × (1 − prowizja),
+//!     z czego część w XRD (domyślnie 80%, z portfela XRD admina) i reszta w HARD (20%, po cenie HARD
+//!     z chwili akceptacji). Użytkownik może anulować, dopóki zlecenie czeka.
 //! 11. Wspólna pula skupu (przełącznik admina, domyślnie WYŁĄCZONA): każdy może wpłacić HARD do puli
 //!     skupu i dostaje udziały. Zysk z dyskonta (po odstakowaniu i rozliczeniu przez admina) dzielony:
 //!     prowizja platformy -> skarbiec, reszta zwiększa wartość udziałów. Wypłata udziałów w każdej chwili,
@@ -121,10 +121,12 @@ pub struct LsuRequest {
     pub account: Global<Account>,
     pub lsu: ResourceAddress,
     pub lsu_amount: Decimal,
-    /// minimum HARD, jaki użytkownik akceptuje (ochrona przed zmianą ceny)
+    /// minimum XRD i HARD, jakie użytkownik akceptuje (ochrona przed zmianą ceny)
+    pub min_xrd_out: Decimal,
     pub min_hard_out: Decimal,
     pub created_at: Instant,
     pub status: LsuRequestStatus,
+    pub xrd_paid: Decimal,
     pub hard_paid: Decimal,
 }
 
@@ -133,6 +135,7 @@ pub struct LsuSoldEvent {
     pub lsu: ResourceAddress,
     pub lsu_amount: Decimal,
     pub xrd_value: Decimal,
+    pub xrd_out: Decimal,
     pub hard_out: Decimal,
 }
 
@@ -171,6 +174,10 @@ mod hard_otc {
             reject_lsu_sale => restrict_to: [OWNER];
             set_hard_price => restrict_to: [OWNER];
             fund_lsu_buyback => restrict_to: [OWNER];
+            fund_lsu_buyback_xrd => restrict_to: [OWNER];
+            withdraw_buyback_xrd => restrict_to: [OWNER];
+            set_lsu_split => restrict_to: [OWNER];
+            set_lsu_limits => restrict_to: [OWNER];
             set_pool => restrict_to: [OWNER];
             mint_initial_pool_shares => restrict_to: [OWNER];
             settle_pool => restrict_to: [OWNER];
@@ -230,6 +237,18 @@ mod hard_otc {
         lsu_escrow: KeyValueStore<u64, Vault>,
         /// HARD przeznaczone na skup (zasila admin)
         buyback_hard: Vault,
+        /// XRD przeznaczone na skup (zasila admin)
+        buyback_xrd: Vault,
+        /// jaka część wypłaty idzie w XRD (reszta w HARD), np. 0.8
+        lsu_xrd_share: Decimal,
+        /// łącznie XRD wypłacone za LSU
+        lsu_xrd_paid: Decimal,
+        /// Limit wartości wypłaty (w XRD) na jedno zgłoszenie.
+        lsu_max_value_per_tx: Decimal,
+        /// Dzienny limit wartości wypłat (w XRD) – okno 24 h.
+        lsu_daily_limit: Decimal,
+        lsu_day_start: i64,
+        lsu_day_used: Decimal,
         /// odkupione LSU (admin wypłaca, odstakowuje, odkupuje HARD)
         lsu_vaults: KeyValueStore<ResourceAddress, Vault>,
         /// łącznie: ile LSU skupiono i ile HARD wydano
@@ -333,6 +352,13 @@ mod hard_otc {
                 lsu_requests: KeyValueStore::new(),
                 lsu_escrow: KeyValueStore::new(),
                 buyback_hard: Vault::new(hard_resource),
+                buyback_xrd: Vault::new(XRD),
+                lsu_xrd_share: dec!("0.8"),
+                lsu_xrd_paid: Decimal::ZERO,
+                lsu_max_value_per_tx: dec!("5000"),
+                lsu_daily_limit: dec!("20000"),
+                lsu_day_start: 0,
+                lsu_day_used: Decimal::ZERO,
                 lsu_vaults: KeyValueStore::new(),
                 lsu_bought: IndexMap::new(),
                 lsu_hard_paid: Decimal::ZERO,
@@ -647,6 +673,7 @@ mod hard_otc {
             &mut self,
             rider: Proof,
             lsu: Bucket,
+            min_xrd_out: Decimal,
             min_hard_out: Decimal,
             account: Global<Account>,
         ) -> u64 {
@@ -656,8 +683,12 @@ mod hard_otc {
             let lsu_resource = lsu.resource_address();
             let lsu_amount = lsu.amount();
             assert!(lsu_amount > Decimal::ZERO, "Nothing to sell");
-            // sprawdza, że to prawdziwe LSU (panic, jeśli nie)
-            let _ = Self::lsu_xrd_value(lsu_resource, lsu_amount);
+            // sprawdza, że to prawdziwe LSU (panic, jeśli nie) i limit na zgłoszenie
+            let value = Self::lsu_xrd_value(lsu_resource, lsu_amount);
+            assert!(
+                value.checked_mul(self.lsu_payout).unwrap() <= self.lsu_max_value_per_tx,
+                "Above the per-request limit"
+            );
 
             let id = self.next_lsu_request_id;
             self.next_lsu_request_id += 1;
@@ -668,9 +699,11 @@ mod hard_otc {
                     account,
                     lsu: lsu_resource,
                     lsu_amount,
+                    min_xrd_out,
                     min_hard_out,
                     created_at: Clock::current_time_rounded_to_seconds(),
                     status: LsuRequestStatus::Pending,
+                    xrd_paid: Decimal::ZERO,
                     hard_paid: Decimal::ZERO,
                 },
             );
@@ -689,28 +722,45 @@ mod hard_otc {
             self.lsu_escrow.get_mut(&request_id).unwrap().take_all()
         }
 
-        /// Admin akceptuje: płaci HARD według aktualnej wartości LSU, stawki i ceny HARD.
+        /// Admin akceptuje: płaci XRD + HARD według aktualnej wartości LSU, prowizji, podziału i ceny HARD.
         pub fn accept_lsu_sale(&mut self, request_id: u64) {
             assert!(self.hard_price_xrd > Decimal::ZERO, "Set the HARD price first");
             let mut req = self.lsu_requests.get(&request_id).expect("Request not found").clone();
             assert!(req.status == LsuRequestStatus::Pending, "Request is not pending");
 
             let xrd_value = Self::lsu_xrd_value(req.lsu, req.lsu_amount);
-            let hard_out = xrd_value
-                .checked_mul(self.lsu_payout)
+            let payout_value = xrd_value.checked_mul(self.lsu_payout).unwrap();
+            let xrd_out = payout_value.checked_mul(self.lsu_xrd_share).unwrap();
+            let hard_out = payout_value
+                .checked_sub(xrd_out)
                 .unwrap()
                 .checked_div(self.hard_price_xrd)
                 .unwrap();
-            assert!(hard_out <= self.lsu_max_hard_per_tx, "Above the per-request limit");
-            assert!(hard_out >= req.min_hard_out, "Below the seller's minimum, reject instead");
-            assert!(self.buyback_hard.amount() >= hard_out, "Not enough HARD in the buyback pool");
+            assert!(hard_out <= self.lsu_max_hard_per_tx, "Above the per-request HARD limit");
+            let now = Clock::current_time_rounded_to_seconds().seconds_since_unix_epoch;
+            if now - self.lsu_day_start >= 86_400 {
+                self.lsu_day_start = now;
+                self.lsu_day_used = Decimal::ZERO;
+            }
+            let used = self.lsu_day_used.checked_add(payout_value).unwrap();
+            assert!(used <= self.lsu_daily_limit, "Daily buying limit reached");
+            self.lsu_day_used = used;
+            assert!(xrd_out >= req.min_xrd_out, "XRD below the seller's minimum, reject instead");
+            assert!(hard_out >= req.min_hard_out, "HARD below the seller's minimum, reject instead");
+            assert!(self.buyback_xrd.amount() >= xrd_out, "Not enough XRD in the buyback wallet");
+            assert!(self.buyback_hard.amount() >= hard_out, "Not enough HARD in the buyback wallet");
 
-            let paid = self
+            let xrd_bucket = self
+                .buyback_xrd
+                .take_advanced(xrd_out, WithdrawStrategy::Rounded(RoundingMode::ToZero));
+            let hard_bucket = self
                 .buyback_hard
                 .take_advanced(hard_out, WithdrawStrategy::Rounded(RoundingMode::ToZero));
-            let paid_amount = paid.amount();
-            req.account.try_deposit_or_abort(paid, None);
-            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_add(paid_amount).unwrap();
+            let xrd_paid = xrd_bucket.amount();
+            let hard_paid = hard_bucket.amount();
+            req.account.try_deposit_or_abort(xrd_bucket, None);
+            req.account.try_deposit_or_abort(hard_bucket, None);
+            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_add(hard_paid).unwrap();
 
             let lsu = self.lsu_escrow.get_mut(&request_id).unwrap().take_all();
             let exists = self.lsu_vaults.get(&req.lsu).is_some();
@@ -721,16 +771,19 @@ mod hard_otc {
             }
             let e = self.lsu_bought.entry(req.lsu).or_insert(Decimal::ZERO);
             *e = e.checked_add(req.lsu_amount).unwrap();
-            self.lsu_hard_paid = self.lsu_hard_paid.checked_add(paid_amount).unwrap();
+            self.lsu_hard_paid = self.lsu_hard_paid.checked_add(hard_paid).unwrap();
+            self.lsu_xrd_paid = self.lsu_xrd_paid.checked_add(xrd_paid).unwrap();
 
             Runtime::emit_event(LsuSoldEvent {
                 lsu: req.lsu,
                 lsu_amount: req.lsu_amount,
                 xrd_value,
-                hard_out: paid_amount,
+                xrd_out: xrd_paid,
+                hard_out: hard_paid,
             });
             req.status = LsuRequestStatus::Accepted;
-            req.hard_paid = paid_amount;
+            req.xrd_paid = xrd_paid;
+            req.hard_paid = hard_paid;
             self.lsu_requests.insert(request_id, req);
         }
 
@@ -864,6 +917,29 @@ mod hard_otc {
             assert!(xrd_per_hard > Decimal::ZERO, "Price must be positive");
             self.hard_price_xrd = xrd_per_hard;
             self.hard_price_updated_at = Clock::current_time_rounded_to_seconds();
+        }
+
+        /// Jaka część wypłaty za LSU idzie w XRD (reszta w HARD): 0.8 = 80% XRD / 20% HARD.
+        pub fn set_lsu_split(&mut self, xrd_share: Decimal) {
+            assert!(xrd_share >= Decimal::ZERO && xrd_share <= Decimal::ONE, "Share must be 0..1");
+            self.lsu_xrd_share = xrd_share;
+        }
+
+        /// Zasilenie portfela skupu w XRD.
+        /// Limity skupu: maks. wartość (XRD) na zgłoszenie i na 24 h.
+        pub fn set_lsu_limits(&mut self, max_value_per_tx: Decimal, daily_limit: Decimal) {
+            assert!(max_value_per_tx >= Decimal::ZERO && daily_limit >= Decimal::ZERO, "Limits must be >= 0");
+            self.lsu_max_value_per_tx = max_value_per_tx;
+            self.lsu_daily_limit = daily_limit;
+        }
+
+        pub fn fund_lsu_buyback_xrd(&mut self, xrd: Bucket) {
+            assert!(xrd.resource_address() == XRD, "Not XRD");
+            self.buyback_xrd.put(xrd);
+        }
+
+        pub fn withdraw_buyback_xrd(&mut self) -> Bucket {
+            self.buyback_xrd.take_all()
         }
 
         /// Zasilenie puli skupu w HARD.

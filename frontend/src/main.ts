@@ -20,6 +20,7 @@ let stats = new Map<string, RiderStats>()
 let loaded = false
 let lsuRequests: LsuRequest[] = []
 let buybackPool = 0
+let buybackXrd = 0
 let lsuHoldings: { address: string; amount: number }[] = []
 let poolSupply = 0
 let livePrice = 0 // XRD per HARD from Ociswap
@@ -43,6 +44,7 @@ const isVerified = (addr: string) => desk.verified.includes(addr)
 const symV = (addr: string) => `${sym(addr)}${isVerified(addr) ? ' ✓' : ''}`
 
 function icon(addr: string) {
+  if (addr === CONFIG.hardResource) return '<img class="ico" src="hard-token.png" alt="">'
   const t = tokenInfo(addr)
   const letter = esc(t.symbol.slice(0, 1).toUpperCase())
   return t.icon
@@ -53,7 +55,7 @@ function icon(addr: string) {
 function tok(addr: string, amount?: number) {
   const t = tokenInfo(addr)
   const mark = isVerified(addr) ? '<span class="ver" title="Verified by HARD ADV">✓</span>' : '<span class="unver" title="Not verified. Check the address.">UNVERIFIED</span>'
-  const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}${esc(short(addr))}`
+  const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}<button type="button" class="addr" data-copy="${esc(addr)}" title="Copy full address">${esc(short(addr))} ⧉</button><a class="addr-link" href="${esc(CONFIG.explorerUrl)}/resource/${esc(addr)}" target="_blank" rel="noopener" title="Check this token in the Radix explorer">↗</a>`
   return `<span class="tok">${icon(addr)}<span><b>${amount !== undefined ? nf(amount) + ' ' : ''}${esc(t.symbol)}${mark}</b><small title="${esc(addr)}">${sub}</small></span></span>`
 }
 function timeLeft(ms: number) {
@@ -78,6 +80,17 @@ document.addEventListener('error', (e) => {
     img.replaceWith(span)
   }
 }, true)
+
+// Copy token address
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('[data-copy]') as HTMLElement | null
+  if (!b) return
+  e.stopPropagation()
+  navigator.clipboard?.writeText(b.dataset.copy!).then(
+    () => toast('Token address copied.', 2000),
+    () => toast(b.dataset.copy!, 8000),
+  )
+})
 
 // ---------- Offer helpers ----------
 /** "buy" = buy request (someone locks XRD to get a token); "sell" = sell offer. */
@@ -159,10 +172,11 @@ async function refreshAll() {
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
     livePrice = await getLiveHardPrice().catch(() => 0)
-    ;[lsuRequests, buybackPool, poolSupply] = await Promise.all([
+    ;[lsuRequests, buybackPool, poolSupply, buybackXrd] = await Promise.all([
       getLsuRequests().catch(() => []),
       getVaultAmount(desk.buybackVault).catch(() => 0),
       getSupply(desk.poolShare).catch(() => 0),
+      getVaultAmount(desk.buybackXrdVault).catch(() => 0),
     ])
     ;[stats, treasuryAll] = await Promise.all([
       getRiderStats(offers.map((o) => o.seller)).catch(() => new Map()),
@@ -280,7 +294,7 @@ function renderMarket() {
         else if (!account) action = `<button disabled title="Connect your wallet">${verb}</button>`
         else if (!myRider()) action = `<button disabled title="Mint your HARD OTC Badge first">${verb}</button>`
         else if (desk.paused) action = '<button disabled title="Desk is paused">Paused</button>'
-        else action = `<button class="primary" data-accept="${o.id}">${verb}</button>`
+        else action = `<button class="act" data-accept="${o.id}">${verb}</button>`
         const filled = filledPct(o)
         return `<tr class="${isFeatured(o) ? 'featured' : ''}">
           <td class="n">#${o.id} ${isFeatured(o) ? '<span class="star">★ FEATURED</span>' : ''}<br>
@@ -368,8 +382,18 @@ function renderLock() {
 // ---------- Staked XRD quick buy ----------
 const myLsus = () => walletTokens().filter((a) => tokenInfo(a).validator)
 const priceNow = () => livePrice || desk.hardPrice
-const hardFor = (xrdValue: number, price = priceNow()) => (price > 0 ? (xrdValue * desk.lsuPayout) / price : 0)
-let lsuQuote = { xrd: 0, hard: 0 }
+/** Wypłata za LSU: wartość × (1 − prowizja), z czego część w XRD, reszta w HARD. */
+const payoutFor = (xrdValue: number, price = priceNow()) => {
+  const total = xrdValue * desk.lsuPayout
+  const xrd = total * desk.lsuXrdShare
+  const hard = price > 0 ? (total - xrd) / price : 0
+  return { total, xrd, hard }
+}
+const payText = (p: { xrd: number; hard: number }) => [p.xrd > 0 ? `${nf(p.xrd)} XRD` : '', p.hard > 0 ? `${nf(p.hard)} HARD` : ''].filter(Boolean).join(' + ') || '–'
+/** Ile jeszcze (wartość wypłat w XRD) można dziś kupić. */
+const lsuLeftToday = () => (Date.now() - desk.lsuDayStart >= 86_400_000 ? desk.lsuDailyLimit : Math.max(0, desk.lsuDailyLimit - desk.lsuDayUsed))
+const splitText = () => `${Math.round(desk.lsuXrdShare * 100)}% XRD + ${Math.round((1 - desk.lsuXrdShare) * 100)}% HARD`
+let lsuQuote = { xrd: 0, pay: { total: 0, xrd: 0, hard: 0 } }
 
 function renderStaked() {
   const on = desk.lsuEnabled && !desk.paused
@@ -379,8 +403,11 @@ function renderStaked() {
   $('#lsu-payout-text').textContent = desk.lsuPayout ? `${pctTxt} (−${Math.round((1 - desk.lsuPayout) * 100)}%)` : '–'
   $('#lsu-payout').textContent = desk.lsuPayout ? `${pctTxt} of value` : '–'
   $('#lsu-price').textContent = priceNow() ? `${nf(priceNow(), 6)} XRD` : 'unavailable'
-  $('#lsu-pool').textContent = `${nf(buybackPool, 0)} HARD`
-  $('#lsu-max').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  $('#lsu-pool').textContent = `${nf(buybackXrd, 0)} XRD · ${nf(buybackPool, 0)} HARD`
+  $('#lsu-split').textContent = splitText()
+  $('#lsu-split-text').textContent = splitText()
+  $('#lsu-max').textContent = `${nf(desk.lsuMaxValuePerTx, 0)} XRD worth`
+  $('#lsu-left').textContent = `${nf(lsuLeftToday(), 0)} XRD worth`
   const sel = $<HTMLSelectElement>('#lsu-token')
   const prev = sel.value
   const lsus = myLsus()
@@ -392,7 +419,7 @@ function renderStaked() {
     ? mine.map((r) => `<tr>
         <td class="n">#${r.id}<br><small class="rep">${new Date(r.createdAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</small></td>
         <td>${tok(r.lsu, r.lsuAmount)}</td>
-        <td class="n">${r.status === 'Accepted' ? `${nf(r.hardPaid)} HARD` : `min. ${nf(r.minHardOut)} HARD`}</td>
+        <td class="n">${r.status === 'Accepted' ? payText({ xrd: r.xrdPaid, hard: r.hardPaid }) : `min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}`}</td>
         <td>${{ Pending: '<span class="pill live">Waiting for review</span>', Accepted: '<span class="pill ok">Paid</span>', Rejected: '<span class="pill bad">Rejected · LSU returned</span>', Cancelled: '<span class="pill">Cancelled</span>' }[r.status]}</td>
         <td>${r.status === 'Pending' ? `<button data-lsu-cancel="${r.id}">Cancel</button>` : ''}</td></tr>`).join('')
     : `<tr><td colspan="5" class="empty">${account ? 'No requests yet.' : 'Connect your wallet to see your requests.'}</td></tr>`
@@ -407,12 +434,14 @@ async function updateLsuQuote() {
     return
   }
   const xrd = await getLsuXrdValue(lsu, amount).catch(() => 0)
-  lsuQuote = { xrd, hard: hardFor(xrd) }
+  lsuQuote = { xrd, pay: payoutFor(xrd) }
   $('#lsu-hint').textContent = amount > balanceOf(lsu) ? `You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.` : `Balance: ${nf(balanceOf(lsu))} ${sym(lsu)}`
   $('#lsu-quote').innerHTML = `
     <div class="sline"><span>Current value of your staked XRD</span><b>${xrd ? nf(xrd) + ' XRD' : 'unavailable'}</b></div>
-    <div class="sline"><span>You get (${Math.round(desk.lsuPayout * 100)}% of value, at ${nf(priceNow(), 6)} XRD per HARD)</span><b>≈ ${nf(lsuQuote.hard)} HARD</b></div>
-    <p class="snote">Final amount uses the staked XRD value and the live Ociswap HARD price at the moment HARD ADV completes the sale. You'll never get less than ${nf(lsuQuote.hard * 0.99)} HARD (−1% tolerance); otherwise the request is rejected and your LSU returned.</p>`
+    <div class="sline"><span>You get in total (${Math.round(desk.lsuPayout * 100)}% of value)</span><b>≈ ${nf(lsuQuote.pay.total)} XRD worth</b></div>
+    <div class="sline sub"><span>In XRD (${Math.round(desk.lsuXrdShare * 100)}%)</span><b>${nf(lsuQuote.pay.xrd)} XRD</b></div>
+    <div class="sline sub"><span>In HARD (${Math.round((1 - desk.lsuXrdShare) * 100)}%, at ${nf(priceNow(), 6)} XRD per HARD)</span><b>≈ ${nf(lsuQuote.pay.hard)} HARD</b></div>
+    <p class="snote">Final amounts use the staked XRD value and the live Ociswap HARD price at the moment HARD ADV completes the sale, with a −1% tolerance; otherwise the request is rejected and your LSU returned.</p>`
 }
 $('#lsu-amount').addEventListener('input', updateLsuQuote)
 $('#lsu-token').addEventListener('change', updateLsuQuote)
@@ -423,16 +452,20 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   if (!lsu || !(amount > 0)) return toast('Choose your staked XRD and enter an amount.')
   if (amount > balanceOf(lsu)) return toast(`You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.`)
   await updateLsuQuote()
-  if (!lsuQuote.hard) return toast('Could not price this LSU right now. Try again shortly.')
-  if (lsuQuote.hard > desk.lsuMaxPerTx) return toast(`Max per request is ${nf(desk.lsuMaxPerTx)} HARD. Sell a smaller amount.`)
-  const min = lsuQuote.hard * 0.99
+  const q = lsuQuote.pay
+  if (!q.total || (desk.lsuXrdShare < 1 && !q.hard)) return toast('Could not price this LSU right now. Try again shortly.')
+  if (q.total > desk.lsuMaxValuePerTx) return toast(`Max per request is ${nf(desk.lsuMaxValuePerTx)} XRD worth. Sell a smaller amount.`)
+  if (q.hard > desk.lsuMaxPerTx) return toast(`Max per request is ${nf(desk.lsuMaxPerTx)} HARD. Sell a smaller amount.`)
+  if (q.total > lsuLeftToday()) toast(`Today's buying limit is almost used up (${nf(lsuLeftToday())} XRD worth left). Your request may wait until tomorrow.`)
+  const minX = q.xrd * 0.99
+  const minH = q.hard * 0.99
   confirmAction('Request staked XRD sale', [
     ['You send to escrow', `${nf(amount)} ${esc(sym(lsu))}`],
     ['Value now', `${nf(lsuQuote.xrd)} XRD`],
-    ['You get (estimate)', `≈ ${nf(lsuQuote.hard)} HARD`],
-    ['Minimum you accept', `${nf(min)} HARD`],
-  ], 'HARD ADV reviews the request manually. If accepted, HARD goes straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
-  () => send(M.requestLsuSale(account!, myRider(), lsu, String(amount), String(+min.toFixed(6))), 'Sale request sent. Waiting for review.'))
+    ['You get (estimate)', `≈ ${payText(q)}`],
+    ['Minimum you accept', payText({ xrd: minX, hard: minH })],
+  ], 'HARD ADV reviews the request manually. If accepted, XRD and HARD go straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
+  () => send(M.requestLsuSale(account!, myRider(), lsu, String(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
 })
 
 // ---------- Community pool ----------
@@ -488,6 +521,7 @@ function renderTreasury() {
   $('#trading-fee').textContent = `${(desk.feePerSide * 100).toFixed(2)}% / side`
   $('#lsu-bought').textContent = desk.lsuBought.length ? desk.lsuBought.map((b) => `${nf(Number(b.amount), 2)} ${sym(b.address)}`).join(' · ') : '0'
   $('#lsu-paid').textContent = `${nf(desk.lsuHardPaid, 2)} HARD`
+  $('#lsu-paid-xrd').textContent = `${nf(desk.lsuXrdPaid, 2)} XRD`
   $('#fees-body').innerHTML = desk.feesCollected.length
     ? desk.feesCollected.map((f) => `<tr><td>${tok(f.address)}</td><td class="num">${nf(Number(f.amount))}</td></tr>`).join('')
     : '<tr><td colspan="2" class="empty">No fees yet. The first trade will fund the treasury.</td></tr>'
@@ -513,7 +547,10 @@ function renderAdmin() {
   document.querySelectorAll<HTMLButtonElement>('[data-unlock]').forEach((b) => b.classList.toggle('on', Number(b.dataset.unlock) === desk.unlockPeriod))
   $('#adm-lsu-status').textContent = desk.lsuEnabled ? 'Open' : 'Closed'
   $('#adm-lsu-payout-now').textContent = desk.lsuPayout ? `${Math.round(desk.lsuPayout * 100)}% (−${Math.round((1 - desk.lsuPayout) * 100)}%)` : '–'
-  $('#adm-lsu-max-now').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  $('#adm-lsu-split-now').textContent = splitText()
+  $('#adm-xrd-now').textContent = `${nf(buybackXrd)} XRD`
+  $('#adm-lsu-max-now').textContent = `${nf(desk.lsuMaxValuePerTx, 0)} XRD worth / ${nf(desk.lsuMaxPerTx, 0)} HARD`
+  $('#adm-lsu-day-now').textContent = `${nf(lsuLeftToday(), 0)} of ${nf(desk.lsuDailyLimit, 0)} XRD worth left`
   $('#adm-price-live').textContent = livePrice ? `${nf(livePrice, 6)} XRD` : 'unavailable (use manual override)'
   $('#adm-price-now').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD (updated ${desk.hardPriceUpdatedAt ? new Date(desk.hardPriceUpdatedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '–'})` : 'not set'
   $('#adm-pool-now').textContent = `${nf(buybackPool)} HARD`
@@ -530,12 +567,12 @@ function renderAdmin() {
   $('#adm-lsu-pending').innerHTML = pend.length
     ? pend.map((r) => {
         const xrd = lsuValue.get(r.id) ?? 0
-        const hard = hardFor(xrd)
-        const ok = hard >= r.minHardOut && hard <= buybackPool && hard <= desk.lsuMaxPerTx && priceNow() > 0
+        const pay = payoutFor(xrd)
+        const ok = pay.xrd >= r.minXrdOut && pay.hard >= r.minHardOut && pay.hard <= buybackPool && pay.xrd <= buybackXrd && pay.hard <= desk.lsuMaxPerTx && pay.total <= lsuLeftToday() && priceNow() > 0
         return `<tr><td class="n">#${r.id}<br><small class="rep">Badge ${badgeNo(r.requester)}</small></td>
           <td>${tok(r.lsu, r.lsuAmount)}</td>
           <td class="n">${xrd ? nf(xrd) + ' XRD' : '–'}</td>
-          <td class="n">${nf(hard)} HARD<br><small class="rep">min. ${nf(r.minHardOut)}</small>${!ok ? '<br><small class="red">cannot accept now</small>' : ''}</td>
+          <td class="n">${payText(pay)}<br><small class="rep">min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}</small>${!ok ? '<br><small class="red">cannot accept now</small>' : ''}</td>
           <td><span class="actions"><button class="primary" data-lsu-accept="${r.id}" ${ok ? '' : 'disabled'}>Accept</button><button data-lsu-reject="${r.id}">Reject</button></span></td></tr>`
       }).join('')
     : '<tr><td colspan="5" class="empty">No pending requests.</td></tr>'
@@ -576,22 +613,37 @@ $('#adm-res-btn').addEventListener('click', () => {
     () => M.adminSetReservationFee(account!, desk.adminBadge, String(v)), `Reservation fee set to ${nf(v)} HARD`)
 })
 const lsuSettings = (enabled: boolean) => {
+  const sRaw = $<HTMLInputElement>('#adm-lsu-split').value
+  const split = sRaw === '' ? desk.lsuXrdShare : Number(sRaw) / 100
+  if (!(split >= 0 && split <= 1)) return toast('XRD share must be between 0 and 100%.')
   const dRaw = $<HTMLInputElement>('#adm-lsu-disc').value
   const mRaw = $<HTMLInputElement>('#adm-lsu-max').value
   const payout = dRaw === '' ? desk.lsuPayout : 1 - Number(dRaw) / 100
   const max = mRaw === '' ? desk.lsuMaxPerTx : Number(mRaw)
+  const tRaw = $<HTMLInputElement>('#adm-lsu-txmax').value
+  const yRaw = $<HTMLInputElement>('#adm-lsu-daily').value
+  const txMax = tRaw === '' ? desk.lsuMaxValuePerTx : Number(tRaw)
+  const daily = yRaw === '' ? desk.lsuDailyLimit : Number(yRaw)
+  if (!(txMax > 0 && daily > 0)) return toast('Limits must be above 0.')
   if (!(payout > 0 && payout <= 1)) return toast('Discount must be between 0 and 99%.')
   if (!(max > 0)) return toast('Max per request must be above 0.')
   adminSend(enabled ? 'Open staked XRD quick buy' : 'Close staked XRD quick buy', [
     ['Status', enabled ? 'Open' : 'Closed'],
     ['Sellers receive', `${Math.round(payout * 100)}% of LSU value (−${Math.round((1 - payout) * 100)}%)`],
-    ['Max per request', `${nf(max)} HARD`],
-  ], '', () => M.adminSetLsuBuyback(account!, desk.adminBadge, enabled, String(payout), String(max)), enabled ? 'Quick buy settings saved' : 'Quick buy closed')
+    ['Paid as', `${Math.round(split * 100)}% XRD + ${Math.round((1 - split) * 100)}% HARD`],
+    ['Max per request', `${nf(txMax)} XRD worth · ${nf(max)} HARD`],
+    ['Daily limit', `${nf(daily)} XRD worth per 24h`],
+  ], '', () => {
+    let a = M.adminSetLsuBuyback(account!, desk.adminBadge, enabled, String(payout), String(max))
+    if (split !== desk.lsuXrdShare) a += `\nCALL_METHOD Address("${CONFIG.deskComponent}") "set_lsu_split" Decimal("${split}");`
+    if (txMax !== desk.lsuMaxValuePerTx || daily !== desk.lsuDailyLimit) a += `\nCALL_METHOD Address("${CONFIG.deskComponent}") "set_lsu_limits" Decimal("${txMax}") Decimal("${daily}");`
+    return a
+  }, enabled ? 'Settings saved' : 'Staked XRD buying closed')
 }
 $('#adm-lsu-save').addEventListener('click', () => lsuSettings(true))
 $('#adm-lsu-disc').addEventListener('input', () => {
   const d = Number($<HTMLInputElement>('#adm-lsu-disc').value)
-  $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets HARD worth ${nf(100 - d, 2)} XRD.` : 'Enter 0–99.'
+  $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets XRD + HARD worth ${nf(100 - d, 2)} XRD in total.` : 'Enter 0–99.'
 })
 $('#adm-lsu-off').addEventListener('click', () => lsuSettings(false))
 const poolSettings = (enabled: boolean) => {
@@ -638,6 +690,17 @@ $('#adm-fund-btn').addEventListener('click', () => {
   if (v > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
   adminSend('Add HARD to buyback pool', [['You add', `${nf(v)} HARD`], ['Pool after', `${nf(buybackPool + v)} HARD`]], '',
     () => M.adminFundBuyback(account!, desk.adminBadge, CONFIG.hardResource, String(v)), `${nf(v)} HARD added to the pool`)
+})
+$('#adm-fund-xrd-btn').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#adm-fund-xrd').value)
+  if (!(v > 0)) return toast('Enter how much XRD to add.')
+  if (v > balanceOf(XRD)) return toast(`You only have ${nf(balanceOf(XRD))} XRD.`)
+  adminSend('Add XRD to buyback wallet', [['You add', `${nf(v)} XRD`], ['Wallet after', `${nf(buybackXrd + v)} XRD`]], '',
+    () => M.adminFundBuybackXrd(account!, desk.adminBadge, XRD, String(v)), `${nf(v)} XRD added`)
+})
+$('#adm-xrd-out').addEventListener('click', () => {
+  adminSend('Take back XRD wallet', [['You receive', `${nf(buybackXrd)} XRD`]], 'Staked XRD purchases cannot pay the XRD part until you add XRD again.',
+    () => M.adminWithdrawBuybackXrd(account!, desk.adminBadge), 'XRD wallet withdrawn')
 })
 $('#adm-pool-out').addEventListener('click', () => {
   adminSend('Withdraw buyback pool', [['You receive', `${nf(buybackPool)} HARD`]], 'Quick buy cannot pay out until you add HARD again.',
@@ -721,15 +784,17 @@ document.addEventListener('click', (e) => {
     getLiveHardPrice()
       .then(async (price) => {
         const xrd = await getLsuXrdValue(r.lsu, r.lsuAmount).catch(() => lsuValue.get(r.id) ?? 0)
-        const hard = hardFor(xrd, price)
-        if (hard < r.minHardOut) return toast(`At the current price the seller would get ${nf(hard)} HARD, below their minimum ${nf(r.minHardOut)}. Reject the request instead.`)
-        if (hard > buybackPool) return toast(`Not enough HARD in the buyback pool (${nf(buybackPool)}). Add HARD first.`)
+        const pay = payoutFor(xrd, price)
+        if (pay.xrd < r.minXrdOut || pay.hard < r.minHardOut) return toast(`Now the seller would get ${payText(pay)}, below their minimum ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}. Reject the request instead.`)
+        if (pay.total > lsuLeftToday()) return toast(`Daily limit reached: ${nf(lsuLeftToday())} XRD worth left today. Raise the limit or accept tomorrow.`)
+        if (pay.xrd > buybackXrd) return toast(`Not enough XRD in the buyback wallet (${nf(buybackXrd)}). Add XRD first.`)
+        if (pay.hard > buybackPool) return toast(`Not enough HARD in the buyback wallet (${nf(buybackPool)}). Add HARD first.`)
         adminSend(`Accept request #${r.id}`, [
           ['You receive', `${nf(r.lsuAmount)} ${esc(sym(r.lsu))}`],
           ['Value now', `${nf(xrd)} XRD`],
           ['HARD price now (Ociswap)', `${nf(price, 6)} XRD`],
-          ['Seller gets', `≈ ${nf(hard)} HARD (${Math.round(desk.lsuPayout * 100)}% of value)`],
-        ], 'The live price is written on-chain and the sale is completed in the same transaction. HARD goes from the buyback pool straight to the seller.',
+          ['Seller gets', `≈ ${payText(pay)}`],
+        ], 'The live price is written on-chain and the sale is completed in the same transaction. XRD and HARD go from your buyback wallets straight to the seller.',
         () => M.adminAcceptLsuAtPrice(account!, desk.adminBadge, r.id, String(+price.toFixed(12))), `Request #${r.id} accepted at ${nf(price, 6)} XRD/HARD`)
       })
       .catch(() => toast('Could not get the HARD price from Ociswap. Try again, or set a manual price first and accept then.'))
