@@ -468,3 +468,26 @@ export async function getCommunityStats(): Promise<{ badges: number; wallets: nu
   communityCache = { at: Date.now(), badges, wallets: owners.size }
   return communityCache
 }
+
+
+/** Kranik testowy: kiedy to konto może znów odebrać (ms, 0 = teraz) i co daje. */
+export async function getTestFaucet(account: string): Promise<{ nextAt: number; cooldown: number; tokens: { resource: string; amount: number }[]; hardAmount: number; hardLeft: number }> {
+  const f = CONFIG.testFaucet
+  const r = await post('/state/entity/details', { addresses: [f] })
+  const fields = r.items?.[0]?.details?.state?.fields ?? []
+  const st: any = {}
+  for (const x of fields) st[x.field_name] = decode(x)
+  const cooldown = Number(st.cooldown_seconds ?? 3600)
+  const tokens = (st.tokens ?? []).map((t: any) => ({ resource: t[0] ?? t.field_0, amount: Number(t[1] ?? t.field_1) }))
+  const hardLeft = st.hard ? await getVaultAmount(st.hard).catch(() => 0) : 0
+  let nextAt = 0
+  if (account && st.last_claim) {
+    const d = await post('/state/key-value-store/data', {
+      key_value_store_address: st.last_claim,
+      keys: [{ key_json: { kind: 'Reference', value: account } }],
+    })
+    const e = d.entries?.[0]
+    if (e) nextAt = (Number(e.value.programmatic_json.value) + cooldown) * 1000
+  }
+  return { nextAt, cooldown, tokens, hardAmount: Number(st.hard_amount ?? 0), hardLeft }
+}

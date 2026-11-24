@@ -17,6 +17,8 @@ const NETWORKS = {
     gatewayUrl: 'https://stokenet.radixdlt.com',
     xrd: 'resource_tdx_2_1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxtfd2jc',
     explorerUrl: 'https://stokenet-dashboard.radixdlt.com',
+    // Kranik testowy (wiele walut, co godzinę). Uzupełnić po uruchomieniu.
+    testFaucet: '',
   },
   mainnet: {
     networkId: 1,
@@ -29,6 +31,7 @@ const NETWORKS = {
     gatewayUrl: 'https://mainnet.radixdlt.com',
     xrd: 'resource_rdx1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxradxrd',
     explorerUrl: 'https://dashboard.radixdlt.com',
+    testFaucet: '',
   },
 } as const
 
@@ -50,6 +53,7 @@ export const CONFIG = {
   // Cena HARD (XRD za 1 HARD) z Ociswap – zawsze prawdziwy HARD z mainnetu.
   hardPriceFeed: 'https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn',
   explorerUrl: N.explorerUrl,
+  testFaucet: N.testFaucet as string,
   feePerSide: 0.005,
   hardLockForDiscount: 1000,
 }

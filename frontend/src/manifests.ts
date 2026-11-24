@@ -205,3 +205,6 @@ CALL_METHOD Address("${desk()}") "admin_return_offer" ${offerId}u64;`
 
 export const adminSetOnlyVerified = (account: string, adminBadge: string, on: boolean) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_only_verified" ${on};`
+
+export const claimTestTokens = (account: string) => `
+CALL_METHOD Address("${CONFIG.testFaucet}") "claim" Address("${account}");${depositAll(account)}`
