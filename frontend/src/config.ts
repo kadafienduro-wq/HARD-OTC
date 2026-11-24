@@ -17,8 +17,8 @@ const NETWORKS = {
     gatewayUrl: 'https://stokenet.radixdlt.com',
     xrd: 'resource_tdx_2_1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxtfd2jc',
     explorerUrl: 'https://stokenet-dashboard.radixdlt.com',
-    // Kranik testowy (wiele walut, co godzinę). Uzupełnić po uruchomieniu.
-    testFaucet: '',
+    // Kranik testowy (wiele walut, co godzinę).
+    testFaucet: 'component_tdx_2_1cq94zykxeg8uvs53v584z0amnjra4rk6px4dtdeclkvng4p8gxlyl3',
   },
   mainnet: {
     networkId: 1,
