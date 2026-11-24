@@ -178,3 +178,6 @@ CALL_METHOD Address("${desk()}") "set_lsu_limits" Decimal("${perTx}") Decimal("$
 
 export const adminSetLsuSplit = (account: string, adminBadge: string, xrdShare: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_lsu_split" Decimal("${xrdShare}");`
+
+export const adminSetTradingFee = (account: string, adminBadge: string, rate: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_trading_fee" Decimal("${rate}");`

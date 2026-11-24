@@ -50,6 +50,6 @@ export const CONFIG = {
   // Cena HARD (XRD za 1 HARD) z Ociswap – zawsze prawdziwy HARD z mainnetu.
   hardPriceFeed: 'https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn',
   explorerUrl: N.explorerUrl,
-  feePerSide: 0.0075,
+  feePerSide: 0.005,
   hardLockForDiscount: 1000,
 }
