@@ -48,7 +48,6 @@ What the admin **cannot** do (please verify): take escrowed offer tokens, take l
 * `lsu_escrow` (per request): pending LSUs. `lsu_vaults` (per LSU resource): bought LSUs.
 * `buyback_xrd`, `buyback_hard`: admin capital for LSU payouts.
 * `faucet`: HARD for the faucet.
-* Pool share resource (HBPS) and related accounting (`pool_outstanding_cost`, …).
 
 ## 5. Internal audit (v8): findings and fixes
 
@@ -108,7 +107,7 @@ To run them locally:
 
 | | Address |
 |---|---|
-| Current desk (v7) | `component_tdx_2_1cr8uef5n7vmar78mumlxhrv5luj6kyjt9e4lm7ym2et7aenn5deq87` |
+| Current desk (v7, v8 pending deploy) | `component_tdx_2_1cr8uef5n7vmar78mumlxhrv5luj6kyjt9e4lm7ym2et7aenn5deq87` |
 | Package (v7) | `package_tdx_2_1p56r5nuh75qjq0qwfh76se4auphlppm8t2me3kzdhkn3865utew0x4` |
 | Test HARD | `resource_tdx_2_1t4x3apc4tre2ynjjl2qg5ctzvfaft48xlcxp52a36qy7s9d6yxhgtn` |
 | Front-end | https://kadafienduro-wq.github.io/HARD-OTC/ |
