@@ -957,6 +957,12 @@ $('#buy-range').addEventListener('input', () => {
   $<HTMLInputElement>('#buy-amount').value = String(+v.toFixed(6))
   updateBuy()
 })
+$('#buy-half').addEventListener('click', () => {
+  if (!buying) return
+  const v = Math.min(Number(buying.askRemaining), balanceOf(buying.askResource)) / 2
+  $<HTMLInputElement>('#buy-amount').value = String(+v.toFixed(6))
+  $<HTMLInputElement>('#buy-amount').dispatchEvent(new Event('input'))
+})
 $('#buy-max').addEventListener('click', () => {
   if (!buying) return
   $<HTMLInputElement>('#buy-amount').value = String(+Math.min(Number(buying.askRemaining), balanceOf(buying.askResource)).toFixed(6))
@@ -995,6 +1001,8 @@ function fillTokenSelects() {
   fillSelect($<HTMLSelectElement>('#token2'), sell ? anyTokens() : walletTokens(), XRD, sell)
   $('#leg1-title').textContent = sell ? 'You sell' : 'You want to buy'
   $('#leg2-title').textContent = sell ? 'You want in total' : 'You pay in total (locked in escrow)'
+  const q1 = document.getElementById('quick-amount1'); if (q1) q1.hidden = !sell
+  const q2 = document.getElementById('quick-amount2'); if (q2) q2.hidden = sell
 }
 
 function readForm() {
@@ -1125,3 +1133,44 @@ async function init() {
   setInterval(refreshAll, 20_000)
 }
 init()
+
+
+// ---------- Szybkie kwoty: 50% / MAX przy polach z kwotą ----------
+const XRD_FEE_RESERVE = 5 // zostaw trochę XRD na opłaty sieciowe
+function quickFill(inputId: string, maxOf: () => { amount: number; resource?: string }) {
+  const input = document.getElementById(inputId) as HTMLInputElement | null
+  if (!input) return
+  const wrap = document.createElement('span')
+  wrap.className = 'quick'
+  wrap.id = `quick-${inputId}`
+  for (const [label, part] of [['50%', 0.5], ['MAX', 1]] as const) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.textContent = label
+    b.addEventListener('click', () => {
+      const { amount, resource } = maxOf()
+      let max = amount
+      if (resource === XRD) max = Math.max(0, max - XRD_FEE_RESERVE)
+      if (!(max > 0)) return toast('Nothing available.')
+      input.value = String(Math.floor(max * part * 1e6) / 1e6)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    wrap.appendChild(b)
+  }
+  input.insertAdjacentElement('afterend', wrap)
+}
+const bal = (r: string) => ({ amount: balanceOf(r), resource: r })
+quickFill('lock-amount', () => bal(CONFIG.hardResource))
+quickFill('unlock-amount', () => ({ amount: myLocked }))
+quickFill('lsu-amount', () => bal($<HTMLSelectElement>('#lsu-token').value))
+quickFill('pool-dep', () => bal(CONFIG.hardResource))
+quickFill('adm-fund-xrd', () => bal(XRD))
+quickFill('adm-fund', () => bal(CONFIG.hardResource))
+const legToken = (n: 1 | 2) => {
+  const t = $<HTMLSelectElement>(`#token${n}`).value
+  return t === 'custom' ? $<HTMLInputElement>(`#custom${n}`).value.trim() : t
+}
+quickFill('amount1', () => bal(legToken(1)))
+quickFill('amount2', () => bal(legToken(2)))
+{ const q2 = document.getElementById('quick-amount2'); if (q2) q2.hidden = true }
