@@ -358,3 +358,7 @@ nav .cnt[hidden] { display: none; }
 .ob-step { flex-wrap: wrap; }
 .ob-step #ob-faucet { flex-basis: 100%; margin-top: 10px; }
 .ob-step #ob-faucet[hidden] { display: none; }
+
+details.adv { margin: 18px 0; border: 1px solid var(--line); padding: 10px 14px; }
+details.adv summary { cursor: pointer; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; font-size: 12px; }
+details.adv[open] summary { margin-bottom: 12px; }

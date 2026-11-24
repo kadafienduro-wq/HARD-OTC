@@ -315,6 +315,17 @@
         </div>
 
         <h3>We buy staked XRD (admin)</h3>
+        <h3>Pending requests</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>LSU received</th><th>Staked XRD (value now)</th><th>To pay</th><th></th></tr></thead>
+          <tbody id="adm-lsu-pending"></tbody>
+        </table>
+        <h3>Bought staked XRD (to unstake)</h3>
+        <table>
+          <thead><tr><th>LSU</th><th class="num">In desk</th><th></th></tr></thead>
+          <tbody id="adm-lsu-hold"></tbody>
+        </table>
+
         <div class="admin-grid">
           <div class="box">
             <h3>Settings</h3>
@@ -363,12 +374,15 @@
             <h3>Buyback HARD wallet</h3>
             <p class="muted">The HARD you set aside to pay people who sell you staked XRD. Each accepted request is paid from here, so it must hold enough HARD. Available now: <b id="adm-pool-now">–</b></p>
             <div class="inline">
-              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD amount" />
+              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD amount, e.g. 5000" />
               <button id="adm-fund-btn" class="primary">Add HARD</button>
               <button id="adm-pool-out">Take back</button>
             </div>
           </div>
         </div>
+
+        <details class="adv">
+          <summary>Community pool (advanced · off by default)</summary>
         <div class="admin-grid">
           <div class="box">
             <h3>Community pool</h3>
@@ -397,16 +411,7 @@
           </div>
         </div>
 
-        <h3>Pending requests</h3>
-        <table class="stack">
-          <thead><tr><th>#</th><th>LSU received</th><th>Staked XRD (value now)</th><th>To pay</th><th></th></tr></thead>
-          <tbody id="adm-lsu-pending"></tbody>
-        </table>
-        <h3>Bought staked XRD (to unstake)</h3>
-        <table>
-          <thead><tr><th>LSU</th><th class="num">In desk</th><th></th></tr></thead>
-          <tbody id="adm-lsu-hold"></tbody>
-        </table>
+        </details>
 
         <h3>Verified tokens</h3>
         <p class="muted">Tokens marked ✓ on the site. Add only tokens whose address you have checked (official HARD, XRD, known LSUs and LP tokens).</p>
