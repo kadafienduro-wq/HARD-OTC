@@ -20,8 +20,6 @@ body {
   color: var(--text);
   background:
     radial-gradient(900px 520px at 80% 18%, rgba(225, 38, 45, 0.10), transparent 65%),
-    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px) 0 0 / 100% 72px,
-    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px) 0 0 / 72px 100%,
     var(--bg);
   overflow-x: clip;
 }
