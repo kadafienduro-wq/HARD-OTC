@@ -273,3 +273,5 @@ button.act:hover { background: var(--red); color: #fff; border-color: var(--red)
 .addr:hover { color: var(--text); text-decoration: underline; }
 .addr-link { color: var(--muted); text-decoration: none; margin-left: 6px; font-size: 12px; }
 .addr-link:hover { color: var(--red); }
+.sline.sub span, .sline.sub b { font-size: 14px; color: var(--muted, #aaa); padding-left: 14px; }
+.sline.sub b { color: inherit; font-weight: 600; }
