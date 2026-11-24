@@ -1,6 +1,6 @@
 //! HARD OTC Desk v3 — escrow OTC na Radix.
 //!
-//! 1. Rider Badge (darmowe NFT) = tożsamość na desku.
+//! 1. HARD OTC Badge (darmowe NFT) = tożsamość na desku.
 //! 2. Sprzedający blokuje token w escrow (`create_offer`), płaci opłatę za ogłoszenie w HARD
 //!    (domyślnie 100, admin 0–100). Opcjonalnie: częściowe kupno, rezerwacja dla konkretnego ridera
 //!    (wymaga >= 1 000 HARD w locku).
@@ -187,7 +187,7 @@ mod hard_otc {
 
             let rider_badge = ResourceBuilder::new_ruid_non_fungible::<RiderBadge>(OwnerRole::None)
                 .metadata(metadata!(init {
-                    "name" => "HARD OTC Rider Badge", locked;
+                    "name" => "HARD OTC Badge", locked;
                     "description" => "Testnet identity badge for the HARD OTC desk. No monetary value.", locked;
                 }))
                 .mint_roles(mint_roles! {
@@ -368,7 +368,7 @@ mod hard_otc {
             );
             assert!(buyer != offer.seller, "Cannot fill your own offer");
             if let Some(reserved) = &offer.reserved_buyer {
-                assert!(reserved == &buyer, "Offer is reserved for another rider");
+                assert!(reserved == &buyer, "Offer is reserved for another user");
             }
             assert!(payment.resource_address() == offer.ask_resource, "Wrong payment asset");
 
@@ -616,7 +616,7 @@ mod hard_otc {
 
         fn check_rider(&self, rider: Proof) -> NonFungibleLocalId {
             rider
-                .check_with_message(self.rider_badge.address(), "Invalid rider badge")
+                .check_with_message(self.rider_badge.address(), "Invalid HARD OTC Badge")
                 .as_non_fungible()
                 .non_fungible_local_id()
         }

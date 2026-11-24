@@ -84,7 +84,7 @@ const isFeatured = (o: OfferView) => o.featuredUntil > Date.now()
 const repText = (id: string) => {
   const s = stats.get(id)
   const n = s ? s.sells + s.buys : 0
-  return n ? `${n} trade${n === 1 ? '' : 's'} completed` : 'new rider'
+  return n ? `${n} trade${n === 1 ? '' : 's'} completed` : 'new trader'
 }
 
 // ---------- Radix dApp Toolkit ----------
@@ -256,7 +256,7 @@ function renderMarket() {
         if (mine) action = '<span class="pill">Your offer</span>'
         else if (reservedForOther) action = '<span class="pill">🔒 Reserved</span>'
         else if (!account) action = `<button disabled title="Connect your wallet">${verb}</button>`
-        else if (!myRider()) action = `<button disabled title="Mint your Rider Badge first">${verb}</button>`
+        else if (!myRider()) action = `<button disabled title="Mint your HARD OTC Badge first">${verb}</button>`
         else if (desk.paused) action = '<button disabled title="Desk is paused">Paused</button>'
         else action = `<button class="primary" data-accept="${o.id}">${verb}</button>`
         const filled = filledPct(o)
@@ -276,7 +276,7 @@ function renderMarket() {
       }).join('')
     : `<tr><td colspan="6" class="empty">${openOffers().length ? 'No offers match your filters.' : `No open offers yet.${myRider() ? ' Be the first: click “+ Create offer”.' : ''}`}</td></tr>`
   $<HTMLButtonElement>('#open-create').disabled = !myRider() || desk.paused
-  $('#open-create').title = myRider() ? '' : 'Connect your wallet and mint a Rider Badge first'
+  $('#open-create').title = myRider() ? '' : 'Connect your wallet and mint a HARD OTC Badge first'
 }
 document.querySelectorAll('input[name=ftype]').forEach((i) => i.addEventListener('change', renderMarket))
 ;['#f-token', '#f-sort', '#f-verified'].forEach((s) => $(s).addEventListener('change', renderMarket))
@@ -444,9 +444,9 @@ document.querySelectorAll<HTMLButtonElement>('nav button').forEach((b) => b.addE
 $('#refresh').addEventListener('click', () => { toast('Refreshing…', 1500); refreshAll() })
 
 const mint = () =>
-  confirmAction('Mint Rider Badge', [['You receive', '1 Rider Badge (free)'], ['Cost', 'Network fee only (test XRD)']],
+  confirmAction('Mint HARD OTC Badge', [['You receive', '1 HARD OTC Badge (free)'], ['Cost', 'Network fee only (test XRD)']],
     'The badge is your identity on the desk. Keep it in your wallet.',
-    () => account && send(M.mintRiderBadge(account), 'Rider Badge minted'))
+    () => account && send(M.mintRiderBadge(account), 'HARD OTC Badge minted'))
 $('#ob-mint').addEventListener('click', mint)
 
 document.addEventListener('click', (e) => {
@@ -509,7 +509,7 @@ document.addEventListener('click', (e) => {
 })
 
 $('#lock-btn').addEventListener('click', () => {
-  if (!account || !myRider()) return toast('Connect your wallet and mint a Rider Badge first.')
+  if (!account || !myRider()) return toast('Connect your wallet and mint a HARD OTC Badge first.')
   const amount = Number($<HTMLInputElement>('#lock-amount').value)
   if (!(amount > 0)) return toast('Enter how much HARD to lock.')
   if (amount > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
@@ -523,7 +523,7 @@ $('#lock-btn').addEventListener('click', () => {
 })
 
 $('#request-unlock-btn').addEventListener('click', () => {
-  if (!account || !myRider()) return toast('Connect your wallet and mint a Rider Badge first.')
+  if (!account || !myRider()) return toast('Connect your wallet and mint a HARD OTC Badge first.')
   const amount = Number($<HTMLInputElement>('#unlock-amount').value)
   if (!(amount > 0)) return toast('Enter how much HARD to unlock.')
   if (amount > myLocked) return toast(`You only have ${nf(myLocked)} HARD locked.`)
