@@ -298,7 +298,7 @@ function renderMine() {
           : `<span class="pill live">Open · ${timeLeft(o.expiresAt)}</span>`
         const actions: string[] = []
         if (o.status === 'Open' && !expired && desk.v3)
-          actions.push(`<button data-promote="${o.id}">${isFeatured(o) ? '★ Extend' : '★ Promote'}</button>`)
+          actions.push(`<button data-promote="${o.id}">${isFeatured(o) ? '★ Extend' : '★ Feature'}</button>`)
         if (o.status === 'Open') actions.push(`<button data-cancel="${o.id}">${expired ? 'Reclaim tokens' : 'Cancel'}</button>`)
         return `<tr class="${isFeatured(o) ? 'featured' : ''}">
           <td class="n">#${o.id}<br><span class="kind ${kindOf(o)}">${kindOf(o) === 'buy' ? 'BUY REQUEST' : 'SELL OFFER'}</span></td>
@@ -404,14 +404,14 @@ $('#adm-promo-btn').addEventListener('click', () => {
   const raw = $<HTMLInputElement>('#adm-promo').value
   const v = Number(raw)
   if (raw === '' || !(v >= 0)) return toast('Enter the promotion fee in HARD.')
-  adminSend('Change promotion fee', [['Now', desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD per 24h` : 'free']], '',
+  adminSend('Change featuring fee', [['Now', desk.promotionFee ? `${nf(desk.promotionFee)} HARD / 24h` : 'free'], ['New', v ? `${nf(v)} HARD / 24h` : 'free']], '',
     () => M.adminSetPromotionFee(account!, desk.adminBadge, String(v)), `Promotion fee set to ${nf(v)} HARD`)
 })
 $('#adm-res-btn').addEventListener('click', () => {
   const raw = $<HTMLInputElement>('#adm-res').value
   const v = Number(raw)
   if (raw === '' || !(v >= 0)) return toast('Enter the reservation fee in HARD.')
-  adminSend('Change reservation fee', [['Now', desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Charged on top of the listing fee when an offer is reserved for a badge number.',
+  adminSend('Change reservation fee', [['Now', desk.reservationFee ? `${nf(desk.reservationFee)} HARD / 24h` : 'free'], ['New', v ? `${nf(v)} HARD / 24h` : 'free']], 'Charged per started 24 hours of the offer’s validity, on top of the listing fee.',
     () => M.adminSetReservationFee(account!, desk.adminBadge, String(v)), `Reservation fee set to ${nf(v)} HARD`)
 })
 $('#adm-verify-btn').addEventListener('click', () => {
@@ -487,17 +487,7 @@ document.addEventListener('click', (e) => {
       () => send(M.cancelOffer(account!, o.seller, o.id), `Offer #${o.id} cancelled, tokens returned`))
   }
 
-  if (el.dataset.promote && account && myRider()) {
-    const o = offers.find((x) => x.id === el.dataset.promote)!
-    const fee = desk.promotionFee
-    if (balanceOf(CONFIG.hardResource) < fee) return toast(`Promotion costs ${nf(fee)} HARD, you have ${nf(balanceOf(CONFIG.hardResource))}.`)
-    const from = Math.max(Date.now(), o.featuredUntil)
-    confirmAction(`Promote offer #${o.id}`, [
-      ['Cost', fee ? `${nf(fee)} HARD` : 'free'],
-      ['★ Featured until', new Date(from + 86_400_000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })],
-    ], 'Your offer is pinned at the top of the market with a ★ badge. The fee goes to the treasury and is not refunded.',
-    () => send(M.promoteOffer(account!, myRider(), o.id, CONFIG.hardResource, String(fee)), `Offer #${o.id} promoted for 24h`))
-  }
+  if (el.dataset.promote && account && myRider()) openPromote(offers.find((x) => x.id === el.dataset.promote)!)
 
   if (el.dataset.unverify && isAdmin()) {
     const r = el.dataset.unverify
@@ -545,6 +535,39 @@ $('#request-unlock-btn').addEventListener('click', () => {
     ['Your trading fee', `${(feeRate(myLocked) * 100).toFixed(2)}% → ${(feeRate(after) * 100).toFixed(2)}%`],
   ], 'The discount drops right away. A new request restarts the waiting period for everything being unlocked.',
   () => send(M.requestUnlock(account!, myRider(), String(amount)), `Unlock of ${nf(amount)} HARD requested`))
+})
+
+// ---------- Featuring (★) ----------
+const promoteDlg = $<HTMLDialogElement>('#promote-dialog')
+let promoting: OfferView | null = null
+const pdays = () => Number((document.querySelector('input[name=pdays]:checked') as HTMLInputElement).value)
+function openPromote(o: OfferView) {
+  promoting = o
+  $('#promote-title').textContent = `${isFeatured(o) ? 'Extend ★ for' : 'Feature'} offer #${o.id}`
+  updatePromote()
+  promoteDlg.showModal()
+}
+function updatePromote() {
+  const o = promoting
+  if (!o) return
+  const days = pdays()
+  const cost = desk.promotionFee * days
+  const from = Math.max(Date.now(), o.featuredUntil)
+  $('#promote-summary').innerHTML = `
+    <div class="sline"><span>Price</span><b>${desk.promotionFee ? `${nf(desk.promotionFee)} HARD × ${days} day${days > 1 ? 's' : ''}` : 'free'}</b></div>
+    <div class="sline"><span>Total cost (non-refundable)</span><b>${nf(cost)} HARD</b></div>
+    <div class="sline"><span>★ Featured until</span><b>${new Date(from + days * 86_400_000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</b></div>`
+  const err = balanceOf(CONFIG.hardResource) < cost ? `You need ${nf(cost)} HARD, you have ${nf(balanceOf(CONFIG.hardResource))}.` : ''
+  $('#promote-error').textContent = err
+  $<HTMLButtonElement>('#promote-ok').disabled = !!err
+}
+document.querySelectorAll('input[name=pdays]').forEach((i) => i.addEventListener('change', updatePromote))
+$('#promote-ok').addEventListener('click', () => {
+  const o = promoting
+  if (!o || !account || !myRider()) return
+  const days = pdays()
+  promoteDlg.close()
+  send(M.promoteOffer(account, myRider(), o.id, CONFIG.hardResource, String(desk.promotionFee * days), days), `Offer #${o.id} featured for ${days} day${days > 1 ? 's' : ''}`)
 })
 
 // ---------- Buy (partial fills) ----------
@@ -652,8 +675,9 @@ function readForm() {
   }
 }
 
-const resFee = (v: { reserved: string }) => (v.reserved && desk.v3 ? desk.reservationFee : 0)
-const totalFees = (v: { reserved: string }) => desk.listingFee + resFee(v)
+const resDays = (expiryHours: number) => Math.ceil(expiryHours / 24)
+const resFee = (v: { reserved: string; expiry: number }) => (v.reserved && desk.v3 ? desk.reservationFee * resDays(v.expiry) : 0)
+const totalFees = (v: { reserved: string; expiry: number }) => desk.listingFee + resFee(v)
 
 function validate(v: ReturnType<typeof readForm>): string {
   const hard = balanceOf(CONFIG.hardResource)
@@ -686,7 +710,7 @@ function updateCreateSummary() {
   $('#create-summary').innerHTML = `
     <div class="sline"><span>Locked in escrow now</span><b>${v.sellAmount ? nf(v.sellAmount) : '–'} ${ok(v.sell) ? esc(symV(v.sell)) : ''}</b></div>
     <div class="sline"><span>Listing fee (non-refundable)</span><b>${desk.listingFee ? nf(desk.listingFee) + ' HARD' : 'Free'}</b></div>
-    ${v.reserved ? `<div class="sline"><span>Reservation fee (non-refundable)</span><b>${resFee(v) ? nf(resFee(v)) + ' HARD' : 'Free'}</b></div>` : ''}
+    ${v.reserved ? `<div class="sline"><span>Reservation fee (${resDays(v.expiry)} × 24h, non-refundable)</span><b>${resFee(v) ? nf(resFee(v)) + ' HARD' : 'Free'}</b></div>` : ''}
     <div class="sline"><span>When completed, you receive</span><b>${v.askAmount ? nf(v.askAmount - myFee) : '–'} ${ok(v.ask) ? esc(symV(v.ask)) : ''}</b></div>
     <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${v.askAmount ? nf(myFee) : '–'}</b></div>
     <div class="sline sub"><span>Partial fills</span><b>${v.partial ? 'allowed' : 'all at once only'}</b></div>`

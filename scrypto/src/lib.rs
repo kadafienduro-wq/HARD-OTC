@@ -7,8 +7,8 @@
 //! 3. Kupujący płaci (`accept_offer`) całość albo część (jeśli oferta pozwala) — atomowo.
 //! 4. Opłata od transakcji 0,75% z każdej strony; progi rabatowe za lock HARD (−20/−40/−60%).
 //! 5. Opłaty -> skarbiec (buyback HARD / płynność). Spalanie opcjonalne (admin, domyślnie 0%).
-//! 6a. Rezerwacja oferty dla konkretnego badge'a: dodatkowa opłata w HARD (domyślnie 50, ustawia admin).
-//! 6. Promowanie oferty za HARD (★ na 24 h, opłata ustawiana przez admina).
+//! 6a. Rezerwacja oferty dla konkretnego badge'a: 50 HARD za każde rozpoczęte 24 h ważności (ustawia admin).
+//! 6. Wyróżnienie oferty (★): 50 HARD za każde 24 h, dokupowane w dowolnym momencie (ustawia admin).
 //! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
 //! 8. Reputacja: liczniki transakcji ridera (sprzedaże, zakupy).
 //! 9. Wypłata locka w dwóch krokach z okresem oczekiwania (domyślnie 7 dni).
@@ -147,9 +147,9 @@ mod hard_otc {
         hard_burn_share: Decimal,
         /// opłata w HARD za wystawienie oferty
         listing_fee_hard: Decimal,
-        /// opłata w HARD za promowanie oferty na 24 h
+        /// opłata w HARD za wyróżnienie oferty, za każde 24 h
         promotion_fee_hard: Decimal,
-        /// dodatkowa opłata w HARD za rezerwację oferty dla konkretnego badge'a
+        /// opłata w HARD za rezerwację oferty, za każde rozpoczęte 24 h ważności
         reservation_fee_hard: Decimal,
         /// łącznie HARD z opłat za rezerwację
         reservation_fees_hard: Decimal,
@@ -220,7 +220,7 @@ mod hard_otc {
                 fee_rate_per_side: dec!("0.0075"),
                 hard_burn_share: Decimal::ZERO,
                 listing_fee_hard: dec!("100"),
-                promotion_fee_hard: dec!("200"),
+                promotion_fee_hard: dec!("50"),
                 reservation_fee_hard: dec!("50"),
                 reservation_fees_hard: Decimal::ZERO,
                 promotion_fees_hard: Decimal::ZERO,
@@ -306,7 +306,13 @@ mod hard_otc {
 
             // Opłata za ogłoszenie (+ ewentualnie za rezerwację) w HARD -> skarbiec. Reszta wraca.
             assert!(listing_fee.resource_address() == self.hard_resource, "Listing fee must be paid in HARD");
-            let reservation_fee = if reserved_buyer.is_some() { self.reservation_fee_hard } else { Decimal::ZERO };
+            // Rezerwacja: stawka za każde rozpoczęte 24 h ważności oferty (1 h / 6 h = 1 doba, 72 h = 3 doby).
+            let days = ((expiry_hours as u64) + 23) / 24;
+            let reservation_fee = if reserved_buyer.is_some() {
+                self.reservation_fee_hard.checked_mul(Decimal::from(days)).unwrap()
+            } else {
+                Decimal::ZERO
+            };
             assert!(
                 listing_fee.amount() >= self.listing_fee_hard.checked_add(reservation_fee).unwrap(),
                 "Listing fee too small"
@@ -480,19 +486,21 @@ mod hard_otc {
             (asset, payment)
         }
 
-        /// Promowanie oferty: ★ na górze rynku przez 24 h (kolejne opłacenie przedłuża).
-        /// Może tylko sprzedający. Opłata w HARD -> skarbiec. Zwraca resztę HARD.
-        pub fn promote_offer(&mut self, offer_id: u64, rider: Proof, mut hard: Bucket) -> Bucket {
+        /// Wyróżnienie oferty: ★ na górze rynku przez `days` × 24 h (kolejne dokupienie przedłuża).
+        /// Może tylko sprzedający. Opłata = stawka × dni, w HARD -> skarbiec. Zwraca resztę HARD.
+        pub fn promote_offer(&mut self, offer_id: u64, rider: Proof, mut hard: Bucket, days: u8) -> Bucket {
+            assert!(days >= 1 && days <= 30, "Days must be between 1 and 30");
+            let cost = self.promotion_fee_hard.checked_mul(Decimal::from(days as u64)).unwrap();
             assert!(!self.paused, "Desk is paused");
             let who = self.check_rider(rider);
             let mut offer = self.offers.get(&offer_id).expect("Offer not found").clone();
             assert!(offer.seller == who, "Only the seller can promote");
             assert!(offer.status == OfferStatus::Open, "Offer is not open");
             assert!(hard.resource_address() == self.hard_resource, "Promotion is paid in HARD");
-            assert!(hard.amount() >= self.promotion_fee_hard, "Promotion fee too small");
+            assert!(hard.amount() >= cost, "Promotion fee too small");
 
-            if self.promotion_fee_hard > Decimal::ZERO {
-                let fee = hard.take(self.promotion_fee_hard);
+            if cost > Decimal::ZERO {
+                let fee = hard.take(cost);
                 self.promotion_fees_hard = self.promotion_fees_hard.checked_add(fee.amount()).unwrap();
                 self.collect_fee(fee);
             }
@@ -502,7 +510,7 @@ mod hard_otc {
             } else {
                 now
             };
-            offer.featured_until = Instant::new(base + 24 * 3600);
+            offer.featured_until = Instant::new(base + (days as i64) * 24 * 3600);
             let featured_until = offer.featured_until;
             self.offers.insert(offer_id, offer);
             Runtime::emit_event(OfferPromotedEvent { offer_id, featured_until });
@@ -618,13 +626,13 @@ mod hard_otc {
             self.listing_fee_hard = amount;
         }
 
-        /// Opłata w HARD za promowanie oferty na 24 h.
+        /// Opłata w HARD za wyróżnienie oferty, za każde 24 h.
         pub fn set_promotion_fee(&mut self, amount: Decimal) {
             assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
             self.promotion_fee_hard = amount;
         }
 
-        /// Dodatkowa opłata w HARD za rezerwację oferty (0 = bez opłaty).
+        /// Opłata w HARD za rezerwację oferty, za każde rozpoczęte 24 h ważności (0 = bez opłaty).
         pub fn set_reservation_fee(&mut self, amount: Decimal) {
             assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
             self.reservation_fee_hard = amount;

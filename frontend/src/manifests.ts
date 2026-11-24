@@ -89,10 +89,10 @@ CALL_METHOD Address("${desk()}") "set_paused" ${paused};`
 export const adminWithdrawTreasury = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_treasury" Address("${resource}");${depositAll(account)}`
 
-export const promoteOffer = (account: string, riderId: string, offerId: string, hardResource: string, fee: string) => `
+export const promoteOffer = (account: string, riderId: string, offerId: string, hardResource: string, fee: string, days: number) => `
 CALL_METHOD Address("${account}") "withdraw" Address("${hardResource}") Decimal("${fee}");
 TAKE_FROM_WORKTOP Address("${hardResource}") Decimal("${fee}") Bucket("fee");${riderProof(account, riderId)}
-CALL_METHOD Address("${desk()}") "promote_offer" ${offerId}u64 Proof("rider") Bucket("fee");${depositAll(account)}`
+CALL_METHOD Address("${desk()}") "promote_offer" ${offerId}u64 Proof("rider") Bucket("fee") ${days}u8;${depositAll(account)}`
 
 export const adminSetPromotionFee = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_promotion_fee" Decimal("${amount}");`

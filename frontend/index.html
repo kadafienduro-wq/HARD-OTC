@@ -97,7 +97,7 @@
       <!-- MY OFFERS -->
       <section id="tab-mine" hidden>
         <h2>My offers</h2>
-        <p class="muted">Cancel an open offer at any time to get the remaining tokens back (expired offers too). Promote an offer to pin it with ★ at the top of the market for 24 hours. Listing and promotion fees are not refunded.</p>
+        <p class="muted">Cancel an open offer at any time to get the remaining tokens back (expired offers too). Feature an offer with ★ to pin it at the top of the market (paid per 24 hours, any time after posting). Fees are not refunded.</p>
         <table class="stack">
           <thead><tr><th>#</th><th>You give</th><th>You receive</th><th>Status</th><th></th></tr></thead>
           <tbody id="mine-body"></tbody>
@@ -145,8 +145,8 @@
         </div>
         <div class="stats">
           <div class="stat"><span>Listing fee</span><b id="listing-fee">–</b></div>
-          <div class="stat"><span>Reservation fee</span><b id="res-fee">–</b></div>
-          <div class="stat"><span>Promotion (24h)</span><b id="promo-fee">–</b></div>
+          <div class="stat"><span>Reservation / 24h</span><b id="res-fee">–</b></div>
+          <div class="stat"><span>Featuring ★ / 24h</span><b id="promo-fee">–</b></div>
           <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
           <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
           <div class="stat"><span>HARD burned forever</span><b id="burned">–</b></div>
@@ -170,7 +170,7 @@
           <li><b>Sell offers and buy requests.</b> A sell offer locks the token being sold; a buy request locks the payment (e.g. XRD) and waits for someone who has the token. Both settle the same way.</li>
           <li><b>Partial fills.</b> If the creator allows it, you can take only part of an offer. The rest stays on the market.</li>
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
-          <li><b>Promotion.</b> Sellers can pay HARD to pin their offer with ★ at the top for 24 hours. Fees go to the treasury.</li>
+          <li><b>Featuring (★).</b> After posting, sellers can pay HARD per 24 hours to pin their offer at the top of the market. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
@@ -213,8 +213,8 @@
           </div>
 
           <div class="box">
-            <h3>Reservation fee</h3>
-            <p class="muted">Extra HARD paid (on top of the listing fee) to reserve an offer for one badge number. Current: <b id="adm-res-now">–</b></p>
+            <h3>Reservation fee (per 24h)</h3>
+            <p class="muted">HARD per started 24 hours of the offer's validity, paid on top of the listing fee, to reserve an offer for one badge number. Current: <b id="adm-res-now">–</b></p>
             <div class="inline">
               <input id="adm-res" type="number" min="0" step="any" placeholder="HARD" />
               <button id="adm-res-btn" class="primary">Save</button>
@@ -222,8 +222,8 @@
           </div>
 
           <div class="box">
-            <h3>Promotion fee</h3>
-            <p class="muted">HARD paid to pin an offer with ★ for 24 hours. Current: <b id="adm-promo-now">–</b></p>
+            <h3>Featuring fee ★ (per 24h)</h3>
+            <p class="muted">HARD per 24 hours of ★ featuring. Sellers can buy it any time after posting. Current: <b id="adm-promo-now">–</b></p>
             <div class="inline">
               <input id="adm-promo" type="number" min="0" step="any" placeholder="HARD" />
               <button id="adm-promo-btn" class="primary">Save</button>
@@ -339,6 +339,25 @@
           <button type="submit" class="primary" id="buy-ok">Review &amp; sign in wallet</button>
         </div>
       </form>
+    </dialog>
+
+    <!-- PROMOTE -->
+    <dialog id="promote-dialog">
+      <div class="dlg-head"><h2 id="promote-title">Feature offer</h2><button type="button" class="x" data-close>✕</button></div>
+      <p class="muted">Your offer is pinned at the top of the market with a ★ badge. You can add more time later.</p>
+      <div class="leg-title">How long?</div>
+      <div class="seg" role="radiogroup" id="promote-days">
+        <label><input type="radio" name="pdays" value="1" checked /> 1 day</label>
+        <label><input type="radio" name="pdays" value="2" /> 2 days</label>
+        <label><input type="radio" name="pdays" value="3" /> 3 days</label>
+        <label><input type="radio" name="pdays" value="7" /> 7 days</label>
+      </div>
+      <div class="summary" id="promote-summary"></div>
+      <p class="err" id="promote-error"></p>
+      <div class="dlg-actions">
+        <button type="button" data-close>Cancel</button>
+        <button type="button" class="primary" id="promote-ok">Review &amp; sign in wallet</button>
+      </div>
     </dialog>
 
     <!-- CONFIRM ACTION -->
