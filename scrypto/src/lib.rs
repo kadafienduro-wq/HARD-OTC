@@ -15,6 +15,10 @@
 //!     Admin ręcznie akceptuje (płaci HARD = wartość LSU w XRD × stawka / cena HARD, np. 80% = −20%)
 //!     albo odrzuca (LSU wraca). Użytkownik może anulować, dopóki zlecenie czeka.
 //!     Wartość LSU czytana z walidatora on-chain; cenę HARD w XRD ustawia admin. HARD z puli skupu.
+//! 11. Wspólna pula skupu (przełącznik admina, domyślnie WYŁĄCZONA): każdy może wpłacić HARD do puli
+//!     skupu i dostaje udziały. Zysk z dyskonta (po odstakowaniu i rozliczeniu przez admina) dzielony:
+//!     prowizja platformy -> skarbiec, reszta zwiększa wartość udziałów. Wypłata udziałów w każdej chwili,
+//!     o ile w puli jest wolny HARD.
 //! 9. Wypłata locka w dwóch krokach z okresem oczekiwania (domyślnie 7 dni).
 //!
 //! Obie strony oferty: zasoby fungible (tokeny, LSU, LP). NFT — w kolejnej wersji.
@@ -169,6 +173,11 @@ mod hard_otc {
             reject_lsu_sale => restrict_to: [OWNER];
             set_hard_price => restrict_to: [OWNER];
             fund_lsu_buyback => restrict_to: [OWNER];
+            set_pool => restrict_to: [OWNER];
+            mint_initial_pool_shares => restrict_to: [OWNER];
+            settle_pool => restrict_to: [OWNER];
+            deposit_pool => PUBLIC;
+            withdraw_pool => PUBLIC;
             withdraw_buyback_hard => restrict_to: [OWNER];
             withdraw_lsu => restrict_to: [OWNER];
             remove_verified => restrict_to: [OWNER];
@@ -233,6 +242,16 @@ mod hard_otc {
         lsu_bought: IndexMap<ResourceAddress, Decimal>,
         lsu_hard_paid: Decimal,
 
+        // ---- Wspólna pula skupu ----
+        pool_enabled: bool,
+        pool_share: FungibleResourceManager,
+        /// HARD wydane na LSU, jeszcze nierozliczone (liczone do wartości puli po koszcie)
+        pool_outstanding_cost: Decimal,
+        /// część zysku dla platformy (do skarbca), np. 0.3 = 30%
+        pool_platform_share: Decimal,
+        /// łącznie zysk przekazany uczestnikom puli
+        pool_profit_total: Decimal,
+
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
         /// HARD w trakcie wypłaty (nie liczą się do rabatu)
         unlocking: KeyValueStore<NonFungibleLocalId, Vault>,
@@ -250,6 +269,23 @@ mod hard_otc {
 
             let (address_reservation, component_address) =
                 Runtime::allocate_component_address(OtcDesk::blueprint_id());
+
+            let pool_share = ResourceBuilder::new_fungible(OwnerRole::None)
+                .divisibility(DIVISIBILITY_MAXIMUM)
+                .metadata(metadata!(init {
+                    "name" => "HARD Buyback Pool Share", locked;
+                    "symbol" => "HBPS", locked;
+                    "description" => "Share of the HARD OTC staked-XRD buyback pool.", locked;
+                }))
+                .mint_roles(mint_roles! {
+                    minter => rule!(require(global_caller(component_address)));
+                    minter_updater => rule!(deny_all);
+                })
+                .burn_roles(burn_roles! {
+                    burner => rule!(require(global_caller(component_address)));
+                    burner_updater => rule!(deny_all);
+                })
+                .create_with_no_initial_supply();
 
             let admin_badge = ResourceBuilder::new_fungible(OwnerRole::None)
                 .divisibility(DIVISIBILITY_NONE)
@@ -308,6 +344,11 @@ mod hard_otc {
                 lsu_vaults: KeyValueStore::new(),
                 lsu_bought: IndexMap::new(),
                 lsu_hard_paid: Decimal::ZERO,
+                pool_enabled: false,
+                pool_share,
+                pool_outstanding_cost: Decimal::ZERO,
+                pool_platform_share: dec!("0.3"),
+                pool_profit_total: Decimal::ZERO,
                 hard_locks: KeyValueStore::new(),
                 unlocking: KeyValueStore::new(),
                 unlock_ready_at: KeyValueStore::new(),
@@ -677,6 +718,7 @@ mod hard_otc {
                 .take_advanced(hard_out, WithdrawStrategy::Rounded(RoundingMode::ToZero));
             let paid_amount = paid.amount();
             req.account.try_deposit_or_abort(paid, None);
+            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_add(paid_amount).unwrap();
 
             let lsu = self.lsu_escrow.get_mut(&request_id).unwrap().take_all();
             let exists = self.lsu_vaults.get(&req.lsu).is_some();
@@ -839,7 +881,98 @@ mod hard_otc {
         }
 
         pub fn withdraw_buyback_hard(&mut self) -> Bucket {
+            assert!(self.pool_shares_supply().is_zero(), "Pool has shareholders, use settle_pool instead");
+            self.pool_outstanding_cost = Decimal::ZERO;
             self.buyback_hard.take_all()
+        }
+
+        // ---------- Wspólna pula skupu ----------
+
+        /// Włącz/wyłącz wpłaty do wspólnej puli i ustaw prowizję platformy od zysku (0.3 = 30%).
+        /// Wyłączenie blokuje tylko nowe wpłaty — wypłaty udziałów zawsze działają.
+        pub fn set_pool(&mut self, enabled: bool, platform_share: Decimal) {
+            assert!(platform_share >= Decimal::ZERO && platform_share <= Decimal::ONE, "Share must be 0..1");
+            self.pool_enabled = enabled;
+            self.pool_platform_share = platform_share;
+        }
+
+        /// Gdy pula ma już HARD admina, a nie ma udziałów: wybija adminowi udziały równe jej wartości,
+        /// żeby jego HARD nie został rozdany nowym uczestnikom.
+        pub fn mint_initial_pool_shares(&mut self) -> FungibleBucket {
+            assert!(self.pool_shares_supply().is_zero(), "Shares already exist");
+            let nav = self.pool_nav();
+            assert!(nav > Decimal::ZERO, "Pool is empty");
+            self.pool_share.mint(nav)
+        }
+
+        /// Wpłata HARD do puli -> udziały proporcjonalnie do wartości puli.
+        pub fn deposit_pool(&mut self, hard: Bucket) -> FungibleBucket {
+            assert!(self.pool_enabled, "Pool deposits are closed");
+            assert!(!self.paused, "Desk is paused");
+            assert!(hard.resource_address() == self.hard_resource, "Deposit HARD");
+            let amount = hard.amount();
+            assert!(amount > Decimal::ZERO, "Nothing to deposit");
+            let supply = self.pool_shares_supply();
+            let nav = self.pool_nav();
+            let shares = if supply.is_zero() {
+                assert!(nav.is_zero(), "Admin must mint initial shares first");
+                amount
+            } else {
+                amount.checked_mul(supply).unwrap().checked_div(nav).unwrap()
+            };
+            self.buyback_hard.put(hard);
+            self.pool_share.mint(shares)
+        }
+
+        /// Oddaj udziały -> HARD według aktualnej wartości puli (o ile jest wolny HARD).
+        pub fn withdraw_pool(&mut self, shares: FungibleBucket) -> Bucket {
+            assert!(shares.resource_address() == self.pool_share.address(), "Not pool shares");
+            let supply = self.pool_shares_supply();
+            let amount = shares
+                .amount()
+                .checked_mul(self.pool_nav())
+                .unwrap()
+                .checked_div(supply)
+                .unwrap();
+            assert!(
+                self.buyback_hard.amount() >= amount,
+                "Not enough free HARD right now (rest is in staked XRD being unstaked). Try after settlement."
+            );
+            shares.burn();
+            self.buyback_hard
+                .take_advanced(amount, WithdrawStrategy::Rounded(RoundingMode::ToZero))
+        }
+
+        /// Rozliczenie: admin zwraca HARD odkupiony za XRD z odstakowanych LSU.
+        /// `cost` = ile HARD z puli kosztowały te LSU. Zysk: prowizja -> skarbiec, reszta -> pula.
+        pub fn settle_pool(&mut self, mut hard: Bucket, cost: Decimal) {
+            assert!(hard.resource_address() == self.hard_resource, "Settle in HARD");
+            assert!(cost >= Decimal::ZERO && cost <= self.pool_outstanding_cost, "Cost above outstanding");
+            let returned = hard.amount();
+            if returned > cost {
+                let profit = returned.checked_sub(cost).unwrap();
+                let cut = hard.take_advanced(
+                    profit.checked_mul(self.pool_platform_share).unwrap(),
+                    WithdrawStrategy::Rounded(RoundingMode::ToZero),
+                );
+                let cut_amount = cut.amount();
+                self.collect_fee(cut);
+                self.pool_profit_total = self
+                    .pool_profit_total
+                    .checked_add(profit.checked_sub(cut_amount).unwrap())
+                    .unwrap();
+            }
+            self.pool_outstanding_cost = self.pool_outstanding_cost.checked_sub(cost).unwrap();
+            self.buyback_hard.put(hard);
+        }
+
+        fn pool_shares_supply(&self) -> Decimal {
+            self.pool_share.total_supply().unwrap_or(Decimal::ZERO)
+        }
+
+        /// Wartość puli w HARD = wolny HARD + HARD wydany na nierozliczone LSU (po koszcie).
+        fn pool_nav(&self) -> Decimal {
+            self.buyback_hard.amount().checked_add(self.pool_outstanding_cost).unwrap()
         }
 
         /// Wypłata odkupionych LSU (do odstakowania).
