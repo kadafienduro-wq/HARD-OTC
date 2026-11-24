@@ -79,6 +79,25 @@ jobs:
             scrypto/target/wasm32-unknown-unknown/release/hard_otc.wasm
             scrypto/target/wasm32-unknown-unknown/release/hard_otc.rpd
 
+      - name: Testy bezpieczenstwa (na zbudowanym kontrakcie)
+        working-directory: testy
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          cargo +stable generate-lockfile
+          python3 - <<'PY'
+          import re, subprocess
+          for _ in range(6):
+              lock = open('Cargo.lock').read()
+              bad = [(n, v) for n, v in re.findall(r'name = "((?:sbor|scrypto|radix)[\w-]*)"\nversion = "([^"]+)"', lock) if v != '1.3.0']
+              print('Do cofniecia:', bad)
+              if not bad:
+                  break
+              for n, v in bad:
+                  subprocess.run(['cargo', '+stable', 'update', '-p', f'{n}@{v}', '--precise', '1.3.0'])
+          PY
+          cargo +stable test --release -- --test-threads=2
+
   strona:
     name: Strona (budowa)
     if: github.ref == 'refs/heads/main'
@@ -92,7 +111,9 @@ jobs:
         working-directory: frontend
         run: |
           npm install
-          npm run build
+          VITE_NETWORK=stokenet npm run build
+          VITE_NETWORK=mainnet npx vite build --outDir dist-mainnet
+          mv dist-mainnet dist/mainnet
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

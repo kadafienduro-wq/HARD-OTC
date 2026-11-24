@@ -1,10 +1,10 @@
-import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
+import { RadixDappToolkit, DataRequestBuilder } from '@radixdlt/radix-dapp-toolkit'
 import { CONFIG } from './config'
 import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
-  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, type LsuRequest,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -111,7 +111,7 @@ const repText = (id: string) => {
 // ---------- Radix dApp Toolkit ----------
 const rdt = RadixDappToolkit({
   dAppDefinitionAddress: CONFIG.dAppDefinitionAddress,
-  networkId: RadixNetwork.Stokenet,
+  networkId: CONFIG.networkId,
   applicationName: 'HARD ADV OTC Desk',
   applicationVersion: '0.3.0',
 })
@@ -128,8 +128,25 @@ $('#switch-acc').addEventListener('click', async () => {
   toast(r.isErr() ? 'Account not changed.' : 'Account switched.', 4000)
 })
 
+/** Bezpiecznik: każda wartość w transakcji musi mieć poprawny format (blokuje wstrzyknięcie poleceń). */
+function manifestProblem(m: string): string {
+  const prefix = CONFIG.network === 'mainnet' ? 'rdx' : 'tdx_2_'
+  for (const [, a] of m.matchAll(/Address\("([^"]*)"\)/g))
+    if (!new RegExp(`^(account|resource|component|package)_${prefix}1[0-9a-z]+$`).test(a)) return `Invalid address: ${a}`
+  for (const [, d] of m.matchAll(/Decimal\("([^"]*)"\)/g))
+    if (!/^\d{1,30}(\.\d{1,18})?$/.test(d)) return `Invalid amount: ${d}`
+  for (const [, id] of m.matchAll(/NonFungibleLocalId\("([^"]*)"\)/g))
+    if (!/^#\d{1,19}#$/.test(id)) return `Invalid badge id: ${id}`
+  if (/\b(CALL_FUNCTION|BURN_RESOURCE|SET_METADATA|LOCK_|ALLOCATE_|PUBLISH_PACKAGE)\b/.test(m)) return 'Unexpected instruction'
+  for (const [, c] of m.matchAll(/CALL_METHOD\s+Address\("([^"]*)"\)/g))
+    if (c !== CONFIG.deskComponent && c !== account) return `Unexpected component: ${c}`
+  return ''
+}
+
 async function send(manifest: string, okMsg: string) {
   if (!account) return toast('Connect your Radix Wallet first.')
+  const bad = manifestProblem(manifest)
+  if (bad) { console.error(bad, manifest); return toast(`Blocked for safety: ${bad}`) }
   toast('Check your Radix Wallet to review and sign…', 0)
   const result = await rdt.walletApi.sendTransaction({ transactionManifest: manifest, version: 1 })
   if (result.isErr()) {
@@ -138,7 +155,7 @@ async function send(manifest: string, okMsg: string) {
     return toast(`Transaction not completed. ${reason}`)
   }
   const tx = result.value.transactionIntentHash
-  toast(`✓ ${okMsg}`, 7000, `https://stokenet-dashboard.radixdlt.com/transaction/${tx}`)
+  toast(`✓ ${okMsg}`, 7000, `${CONFIG.explorerUrl}/transaction/${tx}`)
   await refreshAll()
 }
 
@@ -390,6 +407,15 @@ function renderLock() {
 // ---------- Staked XRD quick buy ----------
 const myLsus = () => walletTokens().filter((a) => tokenInfo(a).validator)
 const priceNow = () => livePrice || desk.hardPrice
+/** Ostrzeżenie, gdy cena HARD gwałtownie się zmieniła (możliwa manipulacja płytkim rynkiem). */
+function priceSpike(): string {
+  const { now, h1, h24 } = hardPriceInfo
+  const ch = (a: number) => (a > 0 ? now / a - 1 : 0)
+  const parts = [] as string[]
+  if (Math.abs(ch(h1)) > 0.15) parts.push(`${ch(h1) > 0 ? '+' : ''}${Math.round(ch(h1) * 100)}% in 1 h (was ${nf(h1, 6)})`)
+  if (Math.abs(ch(h24)) > 0.3) parts.push(`${ch(h24) > 0 ? '+' : ''}${Math.round(ch(h24) * 100)}% in 24 h (was ${nf(h24, 6)})`)
+  return parts.length ? `⚠ HARD price moved fast: ${parts.join(', ')}. Someone may be moving the price on purpose. Check Ociswap before you accept.` : ''
+}
 /** Wypłata za LSU: wartość × (1 − prowizja), z czego część w XRD, reszta w HARD. */
 const payoutFor = (xrdValue: number, price = priceNow()) => {
   const total = xrdValue * desk.lsuPayout
@@ -509,7 +535,7 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
     ['You receive (estimate)', `≈ ${payText(q)}`],
     ['Minimum you accept', payText({ xrd: minX, hard: minH })],
   ], 'HARD ADV reviews the request manually. If accepted, XRD and HARD go straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
-  () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
+  () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), decStr(minX), decStr(minH)), 'Sale request sent. Waiting for review.'))
 })
 
 // ---------- Community pool ----------
@@ -596,6 +622,7 @@ function renderAdmin() {
   $('#adm-lsu-max-now').textContent = `${nf(desk.lsuMaxValuePerTx, 0)} XRD worth / ${nf(desk.lsuMaxPerTx, 0)} HARD`
   $('#adm-lsu-day-now').textContent = `${nf(lsuLeftToday(), 0)} of ${nf(desk.lsuDailyLimit, 0)} XRD worth left`
   $('#adm-price-live').textContent = livePrice ? `${nf(livePrice, 6)} XRD` : 'unavailable (use manual override)'
+  $('#adm-price-warn').textContent = priceSpike()
   $('#adm-price-now').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD (updated ${desk.hardPriceUpdatedAt ? new Date(desk.hardPriceUpdatedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '–'})` : 'not set'
   $('#adm-pool-now').textContent = `${nf(buybackPool)} HARD`
   $('#adm-pool-status').textContent = desk.poolEnabled ? 'Open' : 'Closed'
@@ -748,13 +775,22 @@ $('#adm-fund-xrd-btn').addEventListener('click', () => {
   adminSend('Add XRD to buyback wallet', [['You add', `${nf(v)} XRD`], ['Wallet after', `${nf(buybackXrd + v)} XRD`]], '',
     () => M.adminFundBuybackXrd(account!, desk.adminBadge, XRD, String(v)), `${nf(v)} XRD added`)
 })
+/** Kwota do wypłaty z pola (v5+); puste pole = całość. */
+const outAmount = (inputId: string, have: number) => {
+  const v = Number($<HTMLInputElement>(inputId).value || 0)
+  return desk.version >= 5 && v > 0 && v < have ? v : have
+}
 $('#adm-xrd-out').addEventListener('click', () => {
-  adminSend('Take back XRD wallet', [['You receive', `${nf(buybackXrd)} XRD`]], 'Staked XRD purchases cannot pay the XRD part until you add XRD again.',
-    () => M.adminWithdrawBuybackXrd(account!, desk.adminBadge), 'XRD wallet withdrawn')
+  const amt = outAmount('#adm-fund-xrd', buybackXrd)
+  if (!(amt > 0)) return toast('The XRD wallet is empty.')
+  adminSend('Take XRD back', [['You receive', `${nf(amt)} XRD`], ['Left in wallet', `${nf(buybackXrd - amt)} XRD`]], 'Tip: type an amount in the field to take back only part; leave it empty to take everything.',
+    () => M.adminWithdrawBuybackXrd(account!, desk.adminBadge, amt >= buybackXrd ? '0' : String(amt)), `${nf(amt)} XRD taken back`)
 })
 $('#adm-pool-out').addEventListener('click', () => {
-  adminSend('Withdraw buyback pool', [['You receive', `${nf(buybackPool)} HARD`]], 'Quick buy cannot pay out until you add HARD again.',
-    () => M.adminWithdrawBuybackHard(account!, desk.adminBadge), 'Buyback pool withdrawn')
+  const amt = outAmount('#adm-fund', buybackPool)
+  if (!(amt > 0)) return toast('The HARD wallet is empty.')
+  adminSend('Take HARD back', [['You receive', `${nf(amt)} HARD`], ['Left in wallet', `${nf(buybackPool - amt)} HARD`]], 'Tip: type an amount in the field to take back only part; leave it empty to take everything.',
+    () => M.adminWithdrawBuybackHard(account!, desk.adminBadge, amt >= buybackPool ? '0' : String(amt)), `${nf(amt)} HARD taken back`)
 })
 $('#adm-verify-btn').addEventListener('click', () => {
   const addr = $<HTMLInputElement>('#adm-verify').value.trim()
@@ -844,8 +880,8 @@ document.addEventListener('click', (e) => {
           ['Value now', `${nf(xrd)} XRD`],
           ['HARD price now (Ociswap)', `${nf(price, 6)} XRD`],
           ['Seller gets', `≈ ${payText(pay)}`],
-        ], 'The live price is written on-chain and the sale is completed in the same transaction. XRD and HARD go from your buyback wallets straight to the seller.',
-        () => M.adminAcceptLsuAtPrice(account!, desk.adminBadge, r.id, String(+price.toFixed(12))), `Request #${r.id} accepted at ${nf(price, 6)} XRD/HARD`)
+        ], `${priceSpike() ? priceSpike() + ' ' : ''}The live price is written on-chain and the sale is completed in the same transaction. XRD and HARD go from your buyback wallets straight to the seller.`,
+        () => M.adminAcceptLsuAtPrice(account!, desk.adminBadge, r.id, decStr(price)), `Request #${r.id} accepted at ${nf(price, 6)} XRD/HARD`)
       })
       .catch(() => toast('Could not get the HARD price from Ociswap. Try again, or set a manual price first and accept then.'))
   }
@@ -915,6 +951,18 @@ let promoting: OfferView | null = null
 const pdays = () => Number((document.querySelector('input[name=pdays]:checked') as HTMLInputElement).value)
 function openPromote(o: OfferView) {
   promoting = o
+  // Wyróżnienie nie może trwać dłużej niż oferta (max 1 rozpoczęta doba ponad jej ważność).
+  const from = Math.max(Date.now(), o.featuredUntil)
+  const maxDays = Math.max(0, Math.floor((o.expiresAt - from - 1) / 86_400_000) + 1)
+  let firstOk: HTMLInputElement | null = null
+  document.querySelectorAll<HTMLInputElement>('input[name=pdays]').forEach((i) => {
+    const ok = Number(i.value) <= maxDays
+    i.disabled = !ok
+    ;(i.closest('label') as HTMLElement | null)?.classList.toggle('off', !ok)
+    if (ok && !firstOk) firstOk = i
+    if (!ok && i.checked && firstOk) (firstOk as HTMLInputElement).checked = true
+  })
+  if (!maxDays) return toast('This offer expires too soon to be featured.')
   $('#promote-title').textContent = `${isFeatured(o) ? 'Extend ★ for' : 'Feature'} offer #${o.id}`
   updatePromote()
   promoteDlg.showModal()
@@ -1154,6 +1202,18 @@ function toast(msg: string, ms = 6000, link?: string) {
 window.addEventListener('hashchange', () => location.reload())
 
 async function init() {
+  // Teksty zależne od sieci
+  $('#net-badge').textContent = CONFIG.networkLabel
+  $('#net-card').textContent = CONFIG.networkName.toUpperCase()
+  document.querySelectorAll('.net-name').forEach((e) => (e.textContent = CONFIG.networkName))
+  if (!CONFIG.testnet) {
+    $('#net-warn').textContent = 'Live on Radix mainnet · real assets · use at your own risk, start small'
+    $('#net-disclaimer').textContent = 'Smart contracts can have bugs. Trade only what you can afford to lose.'
+  }
+  if (!CONFIG.deskComponent) {
+    toast(`The ${CONFIG.networkName} desk is not live yet.`, 0)
+    return
+  }
   if (CONFIG.oldDesk) {
     $('#legacy-bar').hidden = false
     $('#desk-switch').textContent = '← Back to the current desk'

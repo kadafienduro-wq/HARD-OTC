@@ -293,3 +293,5 @@ button.act:hover { background: var(--red); color: #fff; border-color: var(--red)
 .qbreak { margin: 10px 0 4px; padding: 10px 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
 .qbreak div { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; font-size: 13px; }
 .qbreak span { color: var(--muted); }
+
+label.off { opacity: .35; pointer-events: none; }

@@ -109,8 +109,9 @@ export type DeskInfo = {
   lsuDailyLimit: number
   lsuDayStart: number
   lsuDayUsed: number
+  version: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0, version: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -164,6 +165,7 @@ export async function loadDeskInfo() {
     lsuDailyLimit: Number(state.lsu_daily_limit ?? 0),
     lsuDayStart: Number(state.lsu_day_start ?? 0) * 1000,
     lsuDayUsed: Number(state.lsu_day_used ?? 0),
+    version: Number(state.version ?? 4),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -389,11 +391,17 @@ export async function getBalances(account: string): Promise<{ address: string; a
 export const short = (a: string) => (a.length > 20 ? `${a.slice(0, 12)}…${a.slice(-6)}` : a)
 
 /** Aktualna cena HARD w XRD (ile XRD za 1 HARD) z Ociswap. */
+/** Ostatnio pobrana cena HARD i jej wartości sprzed 1 h i 24 h (do wykrywania skoków). */
+export const hardPriceInfo = { now: 0, h1: 0, h24: 0 }
+
 export async function getLiveHardPrice(): Promise<number> {
   const res = await fetch(CONFIG.hardPriceFeed)
   if (!res.ok) throw new Error(`Ociswap ${res.status}`)
   const j = await res.json()
   const p = Number(j?.price?.xrd?.now)
   if (!(p > 0)) throw new Error('No price')
+  hardPriceInfo.now = p
+  hardPriceInfo.h1 = Number(j?.price?.xrd?.['1h'] ?? 0)
+  hardPriceInfo.h24 = Number(j?.price?.xrd?.['24h'] ?? 0)
   return p
 }

@@ -33,13 +33,13 @@
         <div class="kicker"><span class="dash"></span>HARD ADV <span class="sep">/</span> BUILT ON RADIX</div>
         <h1>TRADE BIG.<br />SETTLE <em>HARD.</em></h1>
         <p class="lead">Peer-to-peer OTC trading with on-chain escrow. The seller's tokens are locked in the smart contract, and the buyer pays and receives in one atomic transaction: either both sides settle, or nothing happens.</p>
-        <p class="warn">Testnet only · test assets have no monetary value</p>
+        <p class="warn" id="net-warn">Testnet only · test assets have no monetary value</p>
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="coin-wrap">
           <span class="coin-tag">ESCROW ON RADIX <i></i></span>
           <img class="coin" src="hard-token.png" alt="" />
-          <div class="coin-card"><span>NETWORK</span><b>STOKENET</b></div>
+          <div class="coin-card"><span>NETWORK</span><b id="net-card">STOKENET</b></div>
         </div>
       </div>
     </section>
@@ -48,7 +48,7 @@
     <section class="onboard" id="onboard">
       <div class="ob-step" id="ob-1">
         <span class="ob-num">1</span>
-        <div><b>Connect your Radix Wallet</b><small>Use the Connect button in the top right. Your wallet must be on Stokenet.</small></div>
+        <div><b>Connect your Radix Wallet</b><small>Use the Connect button in the top right. Your wallet must be on <span class="net-name">Stokenet</span>.</small></div>
       </div>
       <div class="ob-step" id="ob-2">
         <span class="ob-num">2</span>
@@ -237,7 +237,7 @@
           <thead><tr><th>Token</th><th class="num">Earned</th></tr></thead>
           <tbody id="fees-body"></tbody>
         </table>
-        <p class="muted">Live data read directly from the smart contract on Stokenet.</p>
+        <p class="muted">Live data read directly from the smart contract on <span class="net-name">Stokenet</span>.</p>
       </section>
 
       <!-- HOW IT WORKS -->
@@ -256,7 +256,7 @@
           <li><b>We buy staked XRD.</b> Sell your LSU to HARD ADV and get paid mostly in XRD plus a part in HARD, at a discount to its current value (shown on the “We buy staked XRD” tab). Requests are reviewed manually; you can cancel until then.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
-        <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
+        <p class="muted">Terms of every offer are public on the Radix ledger. <span id="net-disclaimer">This is an experimental testnet application.</span></p>
       </section>
 
       <!-- ADMIN -->
@@ -340,6 +340,7 @@
           <div class="box">
             <h3>HARD price (XRD per HARD)</h3>
             <p class="muted">Live from Ociswap: <b id="adm-price-live">–</b>. Taken automatically at the moment you click Accept. Last price used: <b id="adm-price-now">–</b></p>
+            <p class="red" id="adm-price-warn"></p>
             <p class="muted">Manual override (only if Ociswap is down):</p>
             <div class="inline">
               <input id="adm-price" type="number" min="0" step="any" placeholder="e.g. 0.07" />
@@ -350,18 +351,18 @@
             <h3>Buyback XRD wallet</h3>
             <p class="muted">The XRD you set aside to pay the XRD part to sellers. Available now: <b id="adm-xrd-now">–</b></p>
             <div class="inline">
-              <input id="adm-fund-xrd" type="number" min="0" step="any" placeholder="XRD to add" />
+              <input id="adm-fund-xrd" type="number" min="0" step="any" placeholder="XRD amount" />
               <button id="adm-fund-xrd-btn" class="primary">Add XRD</button>
-              <button id="adm-xrd-out">Take it back</button>
+              <button id="adm-xrd-out">Take back</button>
             </div>
           </div>
           <div class="box">
             <h3>Buyback HARD wallet</h3>
             <p class="muted">The HARD you set aside to pay people who sell you staked XRD. Each accepted request is paid from here, so it must hold enough HARD. Available now: <b id="adm-pool-now">–</b></p>
             <div class="inline">
-              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD to add" />
+              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD amount" />
               <button id="adm-fund-btn" class="primary">Add HARD</button>
-              <button id="adm-pool-out">Take it back</button>
+              <button id="adm-pool-out">Take back</button>
             </div>
           </div>
         </div>
