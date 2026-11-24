@@ -432,7 +432,7 @@ function renderStaked() {
     ? mine.map((r) => `<tr>
         <td class="n">#${r.id}<br><small class="rep">${new Date(r.createdAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</small></td>
         <td>${tok(r.lsu, r.lsuAmount)}</td>
-        <td class="n">${r.status === 'Accepted' ? payText({ xrd: r.xrdPaid, hard: r.hardPaid }) : `min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}`}</td>
+        <td class="n">${r.status === 'Accepted' ? payText({ xrd: r.xrdPaid, hard: r.hardPaid }) + (r.hardPaid > 0 && desk.lsuXrdShare > 0 && desk.lsuXrdShare < 1 ? `<br><small class="rep">at 1 HARD = ${nf((r.xrdPaid * (1 / desk.lsuXrdShare - 1)) / r.hardPaid, 6)} XRD</small>` : '') : `min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}`}</td>
         <td>${{ Pending: '<span class="pill live">Waiting for review</span>', Accepted: '<span class="pill ok">Paid</span>', Rejected: '<span class="pill bad">Rejected · LSU returned</span>', Cancelled: '<span class="pill">Cancelled</span>' }[r.status]}</td>
         <td>${r.status === 'Pending' ? `<button data-lsu-cancel="${r.id}">Cancel</button>` : ''}</td></tr>`).join('')
     : `<tr><td colspan="5" class="empty">${account ? 'No requests yet.' : 'Connect your wallet to see your requests.'}</td></tr>`
@@ -470,12 +470,19 @@ async function updateLsuQuote() {
   const xrd = lsuSellAmount * rate
   lsuQuote = { xrd, pay: payoutFor(xrd) }
   $('#lsu-hint').textContent = `${have} This sends ${nf(lsuSellAmount, 6)} ${sym(lsu)}.`
+  const fee = xrd - lsuQuote.pay.total
   $('#lsu-quote').innerHTML = `
-    <div class="sline"><span>Staked XRD you sell</span><b>${nf(xrd)} XRD</b></div>
-    <div class="sline"><span>You get in total (${Math.round(desk.lsuPayout * 100)}% of value)</span><b>≈ ${nf(lsuQuote.pay.total)} XRD worth</b></div>
-    <div class="sline sub"><span>In XRD (${Math.round(desk.lsuXrdShare * 100)}%)</span><b>${nf(lsuQuote.pay.xrd)} XRD</b></div>
-    <div class="sline sub"><span>In HARD (${Math.round((1 - desk.lsuXrdShare) * 100)}%, at ${nf(priceNow(), 6)} XRD per HARD)</span><b>≈ ${nf(lsuQuote.pay.hard)} HARD</b></div>
-    <p class="snote">Final amounts use the staked XRD value and the live Ociswap HARD price at the moment HARD ADV completes the sale, with a −1% tolerance; otherwise the request is rejected and your LSU returned.</p>`
+    <div class="qrow"><span>You sell</span><b>${nf(xrd, 2)} XRD staked</b></div>
+    <div class="qrow"><span>HARD price used</span><b>1 HARD = ${nf(priceNow(), 6)} XRD <small>live from Ociswap</small></b></div>
+    <div class="qrow big"><span>You receive</span><b>${nf(lsuQuote.pay.xrd, 2)} XRD <i>+</i> ${nf(lsuQuote.pay.hard, 2)} HARD</b></div>
+    <div class="qbreak">
+      <div><span>Value of your staked XRD</span><b>${nf(xrd, 2)} XRD</b></div>
+      <div><span>HARD ADV fee (${Math.round((1 - desk.lsuPayout) * 100)}%)</span><b>− ${nf(fee, 2)} XRD</b></div>
+      <div><span>Paid to you</span><b>${nf(lsuQuote.pay.total, 2)} XRD worth</b></div>
+      <div><span>${Math.round(desk.lsuXrdShare * 100)}% in XRD</span><b>${nf(lsuQuote.pay.xrd, 2)} XRD</b></div>
+      <div><span>${Math.round((1 - desk.lsuXrdShare) * 100)}% in HARD (${nf(lsuQuote.pay.total - lsuQuote.pay.xrd, 2)} XRD ÷ ${nf(priceNow(), 6)})</span><b>${nf(lsuQuote.pay.hard, 2)} HARD</b></div>
+    </div>
+    <p class="snote">The final HARD amount uses the Ociswap price at the moment HARD ADV accepts. If the price moves so that you would get more than 1% less, the request is rejected and your LSU comes back.</p>`
 }
 $('#lsu-amount').addEventListener('input', updateLsuQuote)
 $('#lsu-token').addEventListener('change', updateLsuQuote)
@@ -497,9 +504,9 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   const minX = q.xrd * 0.99
   const minH = q.hard * 0.99
   confirmAction('Request staked XRD sale', [
-    ['Staked XRD you sell', `${nf(lsuQuote.xrd)} XRD`],
-    ['Sent to escrow', `${nf(amount, 6)} ${esc(sym(lsu))}`],
-    ['You get (estimate)', `≈ ${payText(q)}`],
+    ['You sell', `${nf(lsuQuote.xrd, 2)} XRD staked (${nf(amount, 6)} ${esc(sym(lsu))})`],
+    ['HARD price used', `1 HARD = ${nf(priceNow(), 6)} XRD (Ociswap, live)`],
+    ['You receive (estimate)', `≈ ${payText(q)}`],
     ['Minimum you accept', payText({ xrd: minX, hard: minH })],
   ], 'HARD ADV reviews the request manually. If accepted, XRD and HARD go straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
   () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
