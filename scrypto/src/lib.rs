@@ -178,6 +178,7 @@ mod hard_otc {
             withdraw_buyback_xrd => restrict_to: [OWNER];
             set_lsu_split => restrict_to: [OWNER];
             set_lsu_limits => restrict_to: [OWNER];
+            set_trading_fee => restrict_to: [OWNER];
             set_pool => restrict_to: [OWNER];
             mint_initial_pool_shares => restrict_to: [OWNER];
             settle_pool => restrict_to: [OWNER];
@@ -322,7 +323,7 @@ mod hard_otc {
                 .create_with_no_initial_supply();
 
             let component = Self {
-                version: 5,
+                version: 6,
                 admin_badge: admin_badge.resource_address(),
                 rider_badge,
                 next_badge_number: 1,
@@ -332,7 +333,7 @@ mod hard_otc {
                     (dec!("10000"), dec!("0.6")),
                     (dec!("50000"), dec!("0.4")),
                 ],
-                fee_rate_per_side: dec!("0.0075"),
+                fee_rate_per_side: dec!("0.005"),
                 listing_fee_hard: dec!("100"),
                 promotion_fee_hard: dec!("50"),
                 reservation_fee_hard: dec!("50"),
@@ -904,6 +905,13 @@ mod hard_otc {
         }
 
         /// Opłata w HARD za wystawienie oferty (0 = darmowe wystawianie).
+        /// Opłata za handel od każdej strony (np. 0.005 = 0,5%), maks. 1%.
+        pub fn set_trading_fee(&mut self, rate: Decimal) {
+            assert!(rate >= Decimal::ZERO, "Fee cannot be negative");
+            assert!(rate <= dec!("0.01"), "Trading fee cannot exceed 1% per side");
+            self.fee_rate_per_side = rate;
+        }
+
         pub fn set_listing_fee(&mut self, amount: Decimal) {
             assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
             assert!(amount <= dec!("100"), "Listing fee cannot exceed 100 HARD");

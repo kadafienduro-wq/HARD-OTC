@@ -202,9 +202,9 @@ fn pelna_transakcja_i_oplaty_sa_poprawne() {
     // Alice zapłaciła 100 HARD za ogłoszenie
     assert_eq!(e.bal(alice.account, e.hard), a_hard0 - dec!("100"));
     e.accept(&bob, 1, dec!("1000")).expect_commit_success();
-    // Alice: +1000 HARD − 0,75% opłaty; Bob: +100 XRD − 0,75%
-    assert_eq!(e.bal(alice.account, e.hard), a_hard0 - dec!("100") + dec!("992.5"));
-    assert_eq!(e.bal(bob.account, XRD), b_xrd0 + dec!("99.25"));
+    // Alice: +1000 HARD − 0,5% opłaty; Bob: +100 XRD − 0,5%
+    assert_eq!(e.bal(alice.account, e.hard), a_hard0 - dec!("100") + dec!("995"));
+    assert_eq!(e.bal(bob.account, XRD), b_xrd0 + dec!("99.5"));
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn czesciowe_kupno_tylko_gdy_dozwolone() {
     e.create_offer(&alice, dec!("100"), dec!("1000"), 72, None, true, alice.account).expect_commit_success();
     let x0 = e.bal(bob.account, XRD);
     e.accept(&bob, 2, dec!("500")).expect_commit_success();
-    assert_eq!(e.bal(bob.account, XRD), x0 + dec!("49.625"));
+    assert_eq!(e.bal(bob.account, XRD), x0 + dec!("49.75"));
     // reszta oferty dalej do kupienia
     e.accept(&bob, 2, dec!("500")).expect_commit_success();
     failed_with(&e.accept(&bob, 2, dec!("1")), "Offer is not open");
@@ -323,6 +323,9 @@ fn metody_admina_wymagaja_badgea() {
     e.admin_call(true, "set_listing_fee", manifest_args!(dec!("50"))).expect_commit_success();
     failed_with(&e.admin_call(true, "set_listing_fee", manifest_args!(dec!("101"))), "cannot exceed 100");
     failed_with(&e.admin_call(true, "set_unlock_period", manifest_args!(31i64 * 24 * 3600)), "cannot exceed 30 days");
+    failed_with(&e.admin_call(true, "set_trading_fee", manifest_args!(dec!("0.011"))), "cannot exceed 1% per side");
+    assert!(!e.admin_call(false, "set_trading_fee", manifest_args!(dec!("0"))).is_commit_success());
+    e.admin_call(true, "set_trading_fee", manifest_args!(dec!("0.0075"))).expect_commit_success();
 }
 
 #[test]

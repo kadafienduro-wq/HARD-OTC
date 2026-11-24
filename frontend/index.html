@@ -222,7 +222,7 @@
         <ol class="how">
           <li><b>Seller creates an offer.</b> The tokens for sale are locked in the smart contract (escrow) and a listing fee is paid in HARD. The offer is public on the ledger.</li>
           <li><b>Buyer accepts.</b> In one atomic transaction the buyer pays, receives the tokens, and the seller receives the payment directly to their account. If anything fails, nothing moves.</li>
-          <li><b>Fees.</b> Each side pays a trading fee (0.75% before discounts): the seller from the price, the buyer from the tokens received. Locked HARD lowers your side's fee.</li>
+          <li><b>Fees.</b> Each side pays a trading fee (<span id="how-fee">0.5%</span> before discounts): the seller from the price, the buyer from the tokens received. Locked HARD lowers your side's fee.</li>
           <li><b>Cancel any time.</b> The seller can cancel an open or expired offer and gets the tokens back. The listing fee is not refunded.</li>
           <li><b>Sell offers and buy requests.</b> A sell offer locks the token being sold; a buy request locks the payment (e.g. XRD) and waits for someone who has the token. Both settle the same way.</li>
           <li><b>Partial fills.</b> If the creator allows it, you can take only part of an offer. The rest stays on the market.</li>
@@ -241,6 +241,14 @@
         <p class="muted">Visible only to the wallet holding the HARD OTC Admin badge. Every change is a transaction you sign in your Radix Wallet; the smart contract rejects it without the badge.</p>
 
         <div class="admin-grid">
+          <div class="box" id="adm-trade-box">
+            <h3>Trading fee</h3>
+            <p class="muted">Paid by each side of every trade (lock discounts apply on top). Allowed: 0–1%. Current: <b id="adm-trade-now">–</b></p>
+            <div class="inline">
+              <input id="adm-trade" type="number" min="0" max="1" step="0.05" placeholder="% per side, e.g. 0.5" />
+              <button id="adm-trade-btn" class="primary">Save</button>
+            </div>
+          </div>
           <div class="box">
             <h3>Listing fee</h3>
             <p class="muted">HARD paid to create an offer. Allowed: 0–100 HARD. Current: <b id="adm-fee-now">–</b></p>

@@ -609,6 +609,7 @@ function renderTreasury() {
   $('#listing-fee').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'Free'
   $('#promo-fee').textContent = desk.v3 ? (desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'Free') : '–'
   $('#trading-fee').textContent = `${(desk.feePerSide * 100).toFixed(2)}% / side`
+  $('#how-fee').textContent = `${nf(desk.feePerSide * 100, 3)}%`
   $('#lsu-bought').textContent = desk.lsuBought.length ? desk.lsuBought.map((b) => `${nf(Number(b.amount), 2)} ${sym(b.address)}`).join(' · ') : '0'
   $('#lsu-paid').textContent = `${nf(desk.lsuHardPaid, 2)} HARD`
   $('#lsu-paid-xrd').textContent = `${nf(desk.lsuXrdPaid, 2)} XRD`
@@ -628,6 +629,8 @@ function renderAdmin() {
     return
   }
   $('#adm-fee-now').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'
+  $('#adm-trade-now').textContent = `${nf(desk.feePerSide * 100, 3)}% per side`
+  $('#adm-trade-box').hidden = desk.version < 6
   $('#adm-res-now').textContent = desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'
   $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
@@ -694,6 +697,13 @@ $('#adm-fee-btn').addEventListener('click', () => {
   if (raw === '' || !(v >= 0 && v <= 100)) return toast('Listing fee must be between 0 and 100 HARD.')
   adminSend('Change listing fee', [['Now', desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Applies to new offers only.',
     () => M.adminSetListingFee(account!, desk.adminBadge, String(v)), `Listing fee set to ${nf(v)} HARD`)
+})
+$('#adm-trade-btn').addEventListener('click', () => {
+  const raw = $<HTMLInputElement>('#adm-trade').value
+  const v = Number(raw)
+  if (raw === '' || !(v >= 0 && v <= 1)) return toast('Trading fee must be between 0 and 1% per side.')
+  adminSend('Change trading fee', [['Now', `${nf(desk.feePerSide * 100, 3)}% per side`], ['New', `${nf(v, 3)}% per side`], ['Gold tier (−60%) pays', `${nf(v * 0.4, 3)}%`]], 'Applies to the next trades immediately.',
+    () => M.adminSetTradingFee(account!, desk.adminBadge, decStr(v / 100)), `Trading fee set to ${nf(v, 3)}% per side`)
 })
 $('#adm-promo-btn').addEventListener('click', () => {
   const raw = $<HTMLInputElement>('#adm-promo').value
