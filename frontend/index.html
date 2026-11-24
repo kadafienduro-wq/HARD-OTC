@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pl">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -15,112 +15,504 @@
         <div class="word">HARD <i>ADV</i></div>
         <div class="sub">OTC DESK</div>
       </div>
-      <span class="badge">STOKENET · TESTNET</span>
+      <span class="badge" id="net-badge">STOKENET · TESTNET</span>
       <radix-connect-button></radix-connect-button>
     </header>
+
+    <div class="legacy" id="legacy-bar" hidden>
+      OLD DESK (v1): use this page only to cancel old offers and get your tokens back.
+      <a href="#">Go to the current desk →</a>
+    </div>
 
     <section class="hero">
       <div class="kicker"><span class="dash"></span>HARD ADV <span class="sep">/</span> BUILT ON RADIX</div>
       <h1>TRADE BIG.<br />SETTLE <em>HARD.</em></h1>
-      <p class="lead">Escrow OTC na Radix: aktywo sprzedającego jest zablokowane, a obie strony rozliczają się w jednej, atomowej transakcji.</p>
-      <p class="warn">Tylko aktywa testowe. Bez wartości pieniężnej. Eksperymentalny escrow.</p>
+      <p class="lead">Peer-to-peer OTC trading with on-chain escrow. The seller's tokens are locked in the smart contract, and the buyer pays and receives in one atomic transaction: either both sides settle, or nothing happens.</p>
+      <p class="warn">Testnet only · test assets have no monetary value · experimental escrow</p>
+    </section>
+
+    <!-- Getting started -->
+    <section class="onboard" id="onboard">
+      <div class="ob-step" id="ob-1">
+        <span class="ob-num">1</span>
+        <div><b>Connect your Radix Wallet</b><small>Use the Connect button in the top right. Your wallet must be on Stokenet.</small></div>
+      </div>
+      <div class="ob-step" id="ob-2">
+        <span class="ob-num">2</span>
+        <div><b>Mint your free HARD OTC Badge</b><small>Your numbered identity on the desk (#1, #2, …). Needed to buy, sell and lock HARD.</small></div>
+        <button class="primary small" id="ob-mint" hidden>Mint badge</button>
+      </div>
+      <div class="ob-step" id="ob-3">
+        <span class="ob-num">3</span>
+        <div><b>Hold HARD for the listing fee</b><small id="ob-3-text">Creating an offer costs HARD. Buying is free (only the trading fee).</small></div>
+      </div>
+    </section>
+
+    <!-- Account summary -->
+    <section class="me" id="me" hidden>
+      <div class="me-item"><span>HARD OTC Badge</span><b id="me-badge">–</b></div>
+      <div class="me-item"><span>HARD in wallet</span><b id="me-hard">–</b></div>
+      <div class="me-item"><span>HARD locked</span><b id="me-locked">–</b></div>
+      <div class="me-item"><span>Your trading fee</span><b id="me-fee">–</b></div>
     </section>
 
     <nav>
-      <button data-tab="market" class="active">Rynek OTC</button>
-      <button data-tab="mine">Moje oferty</button>
-      <button data-tab="rider">Rider badge i HARD</button>
-      <button data-tab="treasury">Skarbiec</button>
+      <button data-tab="market" class="active">Market</button>
+      <button data-tab="mine">My offers</button>
+      <button data-tab="lock">Lock HARD</button>
+      <button data-tab="staked">Staked XRD</button>
+      <button data-tab="treasury">Treasury</button>
+      <button data-tab="how">How it works</button>
+      <button data-tab="admin" id="admin-tab" class="admin-tab" hidden>Admin</button>
     </nav>
 
     <main>
+      <!-- MARKET -->
       <section id="tab-market">
         <div class="row">
-          <h2>Dostępne oferty</h2>
-          <button id="refresh">Odśwież</button>
-          <button id="open-create" class="primary">+ Nowa oferta</button>
+          <h2>Open offers</h2>
+          <button id="refresh" class="ghost">↻ Refresh</button>
+          <button id="open-create" class="primary">+ Create offer</button>
         </div>
-        <p class="muted">Opłata: 1,5% łącznie (0,75% kupujący + 0,75% sprzedający). Lock 1000 HARD = 20% zniżki na Twoją połowę. Opłaty sieciowe w testowym XRD osobno.</p>
-        <table>
-          <thead><tr><th>#</th><th>Kupujący dostaje</th><th>Cena</th><th>Wygasa</th><th></th></tr></thead>
-          <tbody id="market-body"><tr><td colspan="5">Ładowanie…</td></tr></tbody>
+        <div class="filters">
+          <div class="seg seg-sm" role="radiogroup" aria-label="Offer type">
+            <label><input type="radio" name="ftype" value="all" checked /> All</label>
+            <label><input type="radio" name="ftype" value="sell" /> Sell offers</label>
+            <label><input type="radio" name="ftype" value="buy" /> Buy requests</label>
+          </div>
+          <select id="f-token" aria-label="Token"><option value="">All tokens</option></select>
+          <select id="f-sort" aria-label="Sort">
+            <option value="new">Newest</option>
+            <option value="exp">Expiring soon</option>
+            <option value="price">Best price</option>
+          </select>
+          <label class="check"><input type="checkbox" id="f-verified" /> Verified tokens only</label>
+        </div>
+        <p class="muted">“You get” already includes your trading fee. ✓ = token verified by HARD ADV. Always check unverified token addresses.</p>
+        <table class="stack">
+          <thead><tr><th>Offer</th><th>You get</th><th>You pay</th><th>Price</th><th>Expires</th><th></th></tr></thead>
+          <tbody id="market-body"><tr><td colspan="6" class="empty">Loading offers…</td></tr></tbody>
         </table>
       </section>
 
+      <!-- MY OFFERS -->
       <section id="tab-mine" hidden>
-        <h2>Moje oferty</h2>
-        <table>
-          <thead><tr><th>#</th><th>Sprzedaję</th><th>Za</th><th>Status</th><th></th></tr></thead>
+        <h2>My offers</h2>
+        <p class="muted">Cancel an open offer at any time to get the remaining tokens back (expired offers too). Feature an offer with ★ to pin it at the top of the market (paid per 24 hours, any time after posting). Fees are not refunded.</p>
+        <table class="stack">
+          <thead><tr><th>#</th><th>You give</th><th>You receive</th><th>Status</th><th></th></tr></thead>
           <tbody id="mine-body"></tbody>
         </table>
       </section>
 
-      <section id="tab-rider" hidden>
-        <h2>Rider badge</h2>
-        <p id="rider-info" class="muted">Połącz portfel.</p>
-        <button id="mint-badge" class="primary">Wybij darmowy Rider Badge</button>
-        <h2 style="margin-top:24px">Lock HARD: niższe opłaty</h2>
-        <div id="tier-box"></div>
-        <p class="muted">Blokada nie daje zysku. Wypłata wymaga okresu oczekiwania (poniżej). Od 1 000 HARD odblokowujesz też oferty zarezerwowane dla konkretnego kupującego.</p>
-        <div class="row">
-          <input id="lock-amount" type="number" min="0" value="1000" />
-          <button id="lock-btn">Zablokuj HARD</button>
+      <!-- LOCK -->
+      <section id="tab-lock" hidden>
+        <h2>Lock HARD, pay lower fees</h2>
+        <p class="muted">Locked HARD lowers your trading fee and unlocks reserved (private) offers. Locking earns no yield.</p>
+        <div class="tiers" id="tier-cards"></div>
+        <div class="meter-wrap" id="tier-progress"></div>
+
+        <div class="split">
+          <div class="box">
+            <h3>Lock</h3>
+            <p class="muted">Moves HARD from your wallet into your lock. The discount applies immediately.</p>
+            <div class="inline">
+              <input id="lock-amount" type="number" min="0" step="any" value="1000" aria-label="HARD to lock" />
+              <button id="lock-btn" class="primary">Lock HARD</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Unlock</h3>
+            <p class="muted" id="unlock-period-info">Unlocking takes two steps: request, then claim after the waiting period. HARD being unlocked no longer counts toward your discount.</p>
+            <div class="inline">
+              <input id="unlock-amount" type="number" min="0" step="any" placeholder="HARD to unlock" aria-label="HARD to unlock" />
+              <button id="request-unlock-btn">Request unlock</button>
+            </div>
+            <div id="unlock-box"></div>
+          </div>
         </div>
-        <h2 style="margin-top:20px;font-size:20px">Wypłata z locka</h2>
-        <p class="muted" id="unlock-period-info"></p>
-        <div class="row">
-          <input id="unlock-amount" type="number" min="0" placeholder="Ile HARD" />
-          <button id="request-unlock-btn">Poproś o wypłatę</button>
-        </div>
-        <div id="unlock-box"></div>
       </section>
 
-      <section id="tab-treasury" hidden>
-        <h2>Skarbiec desku</h2>
-        <p class="muted">Opłaty za ogłoszenia (w HARD) i opłaty z transakcji trafiają do skarbca. Środki ze skarbca idą na skup HARD na Ociswap i na płynność w puli HARD.</p>
+      <!-- STAKED XRD QUICK BUY -->
+      <section id="tab-staked" hidden>
+        <div class="row"><h2>Quick buy: staked XRD for HARD</h2><span class="pill" id="lsu-status">–</span></div>
+        <p class="muted">Need liquidity now instead of waiting for unstaking? Sell your staked XRD (LSU) to HARD ADV and get HARD. You receive <b id="lsu-payout-text">–</b> of your LSU's current value, paid in HARD. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
         <div class="stats">
-          <div class="stat"><span>Opłata za ogłoszenie</span><b id="listing-fee">–</b></div>
-          <div class="stat"><span>Spalanie HARD</span><b id="burn-share">–</b></div>
-          <div class="stat"><span>HARD spalone na zawsze</span><b id="burned">–</b></div>
-          <div class="stat"><span>Próg rabatów</span><b id="tiers-short">–</b></div>
+          <div class="stat"><span>You receive</span><b id="lsu-payout">–</b></div>
+          <div class="stat"><span>HARD price used</span><b id="lsu-price">–</b></div>
+          <div class="stat"><span>HARD available</span><b id="lsu-pool">–</b></div>
+          <div class="stat"><span>Max per request</span><b id="lsu-max">–</b></div>
         </div>
-        <h2 style="margin-top:20px;font-size:20px">Zarobione opłaty (łącznie)</h2>
+
+        <div class="box">
+          <h3>Sell staked XRD</h3>
+          <div class="inline">
+            <input id="lsu-amount" type="number" min="0" step="any" placeholder="Amount of LSU" />
+            <select id="lsu-token"></select>
+            <button id="lsu-sell-btn" class="primary">Request sale</button>
+          </div>
+          <small class="hint" id="lsu-hint"></small>
+          <div class="summary" id="lsu-quote"></div>
+        </div>
+
+        <h3>My requests</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>Staked XRD</th><th>HARD</th><th>Status</th><th></th></tr></thead>
+          <tbody id="lsu-mine"></tbody>
+        </table>
+
+        <div id="pool-section" hidden>
+          <h3>Community buyback pool</h3>
+          <p class="muted">Add HARD to the pool that pays for staked XRD. When the bought staked XRD is unstaked and turned back into HARD, the discount profit is shared: <b id="pool-cut-text">–</b> goes to the desk treasury, the rest increases the value of pool shares (HBPS). You can redeem shares any time while the pool has free HARD; HARD tied up in staked XRD being unstaked is redeemable after settlement. Past results don't guarantee future results; only add what you can afford to have locked for a while.</p>
+          <div class="stats">
+            <div class="stat"><span>Pool value</span><b id="pool-nav">–</b></div>
+            <div class="stat"><span>Free HARD</span><b id="pool-free">–</b></div>
+            <div class="stat"><span>In staked XRD (unstaking)</span><b id="pool-out">–</b></div>
+            <div class="stat"><span>1 share =</span><b id="pool-price">–</b></div>
+            <div class="stat"><span>Your shares</span><b id="pool-mine">–</b></div>
+            <div class="stat"><span>Profit shared so far</span><b id="pool-profit">–</b></div>
+          </div>
+          <div class="split">
+            <div class="box">
+              <h3>Add HARD</h3>
+              <p class="muted" id="pool-dep-note"></p>
+              <div class="inline">
+                <input id="pool-dep" type="number" min="0" step="any" placeholder="HARD to add" />
+                <button id="pool-dep-btn" class="primary">Add to pool</button>
+              </div>
+            </div>
+            <div class="box">
+              <h3>Redeem shares</h3>
+              <p class="muted">You get HARD at the current share value.</p>
+              <div class="inline">
+                <input id="pool-wd" type="number" min="0" step="any" placeholder="Shares (HBPS)" />
+                <button id="pool-wd-max" type="button">Max</button>
+                <button id="pool-wd-btn">Redeem</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TREASURY -->
+      <section id="tab-treasury" hidden>
+        <h2>Desk treasury</h2>
+        <p class="muted">Listing fees (paid in HARD) and trading fees go to the desk treasury. Treasury funds are used to buy back HARD and add liquidity to the HARD pool.</p>
+        <div class="buyback">
+          <div class="bb-main"><span>HARD earned from listing, reservation &amp; promotion fees</span><b id="bb-listing">–</b></div>
+          <div class="bb-flow">
+            <div><span>Ready for buyback now</span><b id="bb-ready">–</b></div>
+            <div><span>Already spent on buyback &amp; liquidity</span><b id="bb-spent">–</b></div>
+          </div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span>Listing fee</span><b id="listing-fee">–</b></div>
+          <div class="stat"><span>Reservation / 24h</span><b id="res-fee">–</b></div>
+          <div class="stat"><span>Featuring ★ / 24h</span><b id="promo-fee">–</b></div>
+          <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
+          <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
+          <div class="stat"><span>HARD burned forever</span><b id="burned">–</b></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span>Staked XRD bought</span><b id="lsu-bought">–</b></div>
+          <div class="stat"><span>HARD paid for staked XRD</span><b id="lsu-paid">–</b></div>
+        </div>
+        <h3>Fees earned (all time)</h3>
         <table>
-          <thead><tr><th>Token</th><th>Zarobione</th></tr></thead>
+          <thead><tr><th>Token</th><th class="num">Earned</th></tr></thead>
           <tbody id="fees-body"></tbody>
         </table>
-        <p class="muted">Dane są czytane na żywo z kontraktu na Stokenet.</p>
+        <p class="muted">Live data read directly from the smart contract on Stokenet.</p>
       </section>
+
+      <!-- HOW IT WORKS -->
+      <section id="tab-how" hidden>
+        <h2>How it works</h2>
+        <ol class="how">
+          <li><b>Seller creates an offer.</b> The tokens for sale are locked in the smart contract (escrow) and a listing fee is paid in HARD. The offer is public on the ledger.</li>
+          <li><b>Buyer accepts.</b> In one atomic transaction the buyer pays, receives the tokens, and the seller receives the payment directly to their account. If anything fails, nothing moves.</li>
+          <li><b>Fees.</b> Each side pays a trading fee (0.75% before discounts): the seller from the price, the buyer from the tokens received. Locked HARD lowers your side's fee.</li>
+          <li><b>Cancel any time.</b> The seller can cancel an open or expired offer and gets the tokens back. The listing fee is not refunded.</li>
+          <li><b>Sell offers and buy requests.</b> A sell offer locks the token being sold; a buy request locks the payment (e.g. XRD) and waits for someone who has the token. Both settle the same way.</li>
+          <li><b>Partial fills.</b> If the creator allows it, you can take only part of an offer. The rest stays on the market.</li>
+          <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
+          <li><b>Featuring (★).</b> After posting, sellers can pay HARD per 24 hours to pin their offer at the top of the market. Fees go to the treasury.</li>
+          <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
+          <li><b>Quick buy of staked XRD.</b> Sell your LSU to HARD ADV for HARD at a discount to its current value (shown on the Staked XRD tab). Requests are reviewed manually; you can cancel until then.</li>
+          <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
+        </ol>
+        <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
+      </section>
+
+      <!-- ADMIN -->
+      <section id="tab-admin" hidden>
+        <h2>Admin panel</h2>
+        <p class="muted">Visible only to the wallet holding the HARD OTC Admin badge. Every change is a transaction you sign in your Radix Wallet; the smart contract rejects it without the badge.</p>
+
+        <div class="admin-grid">
+          <div class="box">
+            <h3>Listing fee</h3>
+            <p class="muted">HARD paid to create an offer. Allowed: 0–100 HARD. Current: <b id="adm-fee-now">–</b></p>
+            <div class="inline">
+              <input id="adm-fee" type="number" min="0" max="100" step="any" placeholder="0–100" />
+              <button id="adm-fee-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>Unlock waiting period</h3>
+            <p class="muted">Time between “Request unlock” and “Claim”. Current: <b id="adm-unlock-now">–</b></p>
+            <div class="chips">
+              <button data-unlock="300">5 min (testing)</button>
+              <button data-unlock="86400">1 day</button>
+              <button data-unlock="259200">3 days</button>
+              <button data-unlock="604800">7 days</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>HARD burn</h3>
+            <p class="muted">Share of fees paid in HARD that is locked forever (removed from circulation). Current: <b id="adm-burn-now">–</b></p>
+            <div class="inline">
+              <input id="adm-burn" type="number" min="0" max="100" step="1" placeholder="0–100 %" />
+              <button id="adm-burn-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>Reservation fee (per 24h)</h3>
+            <p class="muted">HARD per started 24 hours of the offer's validity, paid on top of the listing fee, to reserve an offer for one badge number. Current: <b id="adm-res-now">–</b></p>
+            <div class="inline">
+              <input id="adm-res" type="number" min="0" step="any" placeholder="HARD" />
+              <button id="adm-res-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>Featuring fee ★ (per 24h)</h3>
+            <p class="muted">HARD per 24 hours of ★ featuring. Sellers can buy it any time after posting. Current: <b id="adm-promo-now">–</b></p>
+            <div class="inline">
+              <input id="adm-promo" type="number" min="0" step="any" placeholder="HARD" />
+              <button id="adm-promo-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>Desk status</h3>
+            <p class="muted">Pausing blocks new offers and purchases. Users can still cancel offers and reclaim tokens.</p>
+            <p>Status: <b id="adm-status">–</b></p>
+            <button id="adm-pause-btn">Pause desk</button>
+          </div>
+        </div>
+
+        <h3>Quick buy: staked XRD</h3>
+        <div class="admin-grid">
+          <div class="box">
+            <h3>Settings</h3>
+            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
+            <label class="fld">Discount for sellers (%)
+              <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 10 or 15" />
+              <small class="hint" id="adm-lsu-disc-hint">Sellers get the LSU value minus this %.</small>
+            </label>
+            <label class="fld">Max HARD per request
+              <input id="adm-lsu-max" type="number" min="0" step="any" placeholder="e.g. 500000" />
+            </label>
+            <div class="inline" style="margin-top:8px">
+              <button id="adm-lsu-save" class="primary">Save &amp; enable</button>
+              <button id="adm-lsu-off">Disable</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>HARD price (XRD per HARD)</h3>
+            <p class="muted">Used when you accept requests. Update it from Ociswap before accepting. Current: <b id="adm-price-now">–</b></p>
+            <div class="inline">
+              <input id="adm-price" type="number" min="0" step="any" placeholder="e.g. 0.07" />
+              <button id="adm-price-btn" class="primary">Save</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Buyback HARD pool</h3>
+            <p class="muted">HARD paid out to sellers. Available: <b id="adm-pool-now">–</b></p>
+            <div class="inline">
+              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD to add" />
+              <button id="adm-fund-btn" class="primary">Add HARD</button>
+              <button id="adm-pool-out">Withdraw all</button>
+            </div>
+          </div>
+        </div>
+        <div class="admin-grid">
+          <div class="box">
+            <h3>Community pool</h3>
+            <p class="muted">Lets anyone add HARD to the buyback pool for a share of the discount profit. Status: <b id="adm-pool-status">–</b> · Your cut of profit: <b id="adm-pool-cut-now">–</b> · Shares issued: <b id="adm-pool-supply">–</b></p>
+            <label class="fld">Your cut of profit (%)
+              <input id="adm-pool-cut" type="number" min="0" max="100" step="1" placeholder="e.g. 30" />
+            </label>
+            <div class="inline">
+              <button id="adm-pool-on" class="primary">Save &amp; open pool</button>
+              <button id="adm-pool-off">Close deposits</button>
+            </div>
+            <button id="adm-pool-init" style="margin-top:8px" hidden>Mint my shares for HARD already in the pool</button>
+            <p class="muted" id="adm-pool-init-note" hidden>The pool already holds your HARD. Mint your shares first, otherwise new depositors would get a part of it.</p>
+          </div>
+          <div class="box">
+            <h3>Settle unstaked XRD</h3>
+            <p class="muted">After unstaking and buying back HARD, return it here. Outstanding cost (HARD paid for staked XRD not yet settled): <b id="adm-out-now">–</b></p>
+            <label class="fld">HARD returned to pool
+              <input id="adm-settle-amt" type="number" min="0" step="any" placeholder="HARD you bought back" />
+            </label>
+            <label class="fld">Cost of these staked XRD (HARD)
+              <input id="adm-settle-cost" type="number" min="0" step="any" placeholder="HARD originally paid" />
+            </label>
+            <small class="hint" id="adm-settle-hint"></small>
+            <button id="adm-settle-btn" class="primary">Settle</button>
+          </div>
+        </div>
+
+        <h3>Pending requests</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>HARD to pay</th><th></th></tr></thead>
+          <tbody id="adm-lsu-pending"></tbody>
+        </table>
+        <h3>Bought staked XRD (to unstake)</h3>
+        <table>
+          <thead><tr><th>LSU</th><th class="num">In desk</th><th></th></tr></thead>
+          <tbody id="adm-lsu-hold"></tbody>
+        </table>
+
+        <h3>Verified tokens</h3>
+        <p class="muted">Tokens marked ✓ on the site. Add only tokens whose address you have checked (official HARD, XRD, known LSUs and LP tokens).</p>
+        <div class="inline" style="margin:10px 0">
+          <input id="adm-verify" placeholder="Token address (resource_…)" />
+          <button id="adm-verify-btn" class="primary">Add ✓</button>
+        </div>
+        <table>
+          <thead><tr><th>Token</th><th></th></tr></thead>
+          <tbody id="adm-verified-body"></tbody>
+        </table>
+
+        <h3>Treasury: withdraw for buyback &amp; liquidity</h3>
+        <p class="muted">Sends the full treasury balance of a token to your wallet. Withdrawn HARD is counted as “spent on buyback &amp; liquidity” on the Treasury tab.</p>
+        <table>
+          <thead><tr><th>Token</th><th class="num">In treasury</th><th></th></tr></thead>
+          <tbody id="adm-treasury-body"></tbody>
+        </table>
+      </section>
+
+      <footer class="foot">
+        <a id="desk-switch" href="#stary">Old desk (v1): cancel old offers and reclaim tokens</a>
+      </footer>
     </main>
 
+    <!-- CREATE OFFER -->
     <dialog id="create-dialog">
-      <form id="create-form" method="dialog">
-        <h2>Nowa oferta (escrow)</h2>
-        <label>Sprzedaję<select name="sell" id="sell" required></select></label>
-        <div class="pick" id="sell-preview"></div>
-        <label>Ilość<input name="sellAmount" type="number" step="any" min="0" required /></label>
-        <label>Chcę w zamian<select name="ask" id="ask" required></select></label>
-        <div class="pick" id="ask-preview"></div>
-        <label id="ask-custom-wrap" hidden>Adres tokena (resource_tdx_2_…)<input name="askCustom" placeholder="resource_tdx_2_…" /></label>
-        <label>Cena (łącznie)<input name="askAmount" type="number" step="any" min="0" required /></label>
-        <label>Ważność
-          <select name="expiry"><option value="1">1 h</option><option value="6">6 h</option><option value="72" selected>72 h</option></select>
-        </label>
-        <label>Zarezerwowany kupujący (ID Rider Badge, opcjonalnie)<input name="reserved" id="reserved" placeholder="{xxxx-xxxx-…}" /></label>
-        <p id="reserved-note" class="muted" hidden>Oferty zarezerwowane są dla holderów: zablokuj min. 1 000 HARD.</p>
-        <p class="muted">Warunki oferty są publiczne na ledgerze. Rezerwacja ogranicza, kto może przyjąć ofertę, ale jej nie ukrywa.</p>
-        <p id="fee-preview" class="muted"></p>
-        <div class="row">
-          <button value="cancel" formnovalidate>Anuluj</button>
-          <button id="submit-offer" class="primary" value="ok">Podpisz w Radix Wallet</button>
+      <form id="create-form" novalidate>
+        <div class="dlg-head"><h2>Create offer</h2><button type="button" class="x" data-close>✕</button></div>
+        <div class="seg" role="radiogroup" aria-label="I want to">
+          <label><input type="radio" name="mode" value="sell" checked /> I want to sell</label>
+          <label><input type="radio" name="mode" value="buy" /> I want to buy</label>
+        </div>
+
+        <div class="leg">
+          <div class="leg-title" id="leg1-title">You sell</div>
+          <div class="inline">
+            <input name="amount1" id="amount1" type="number" min="0" step="any" placeholder="Amount" required />
+            <select name="token1" id="token1" required></select>
+          </div>
+          <input name="custom1" id="custom1" class="custom" placeholder="Token address (resource_…)" hidden />
+          <small class="hint" id="hint1"></small>
+        </div>
+
+        <div class="leg">
+          <div class="leg-title" id="leg2-title">You want in total</div>
+          <div class="inline">
+            <input name="amount2" id="amount2" type="number" min="0" step="any" placeholder="Amount" required />
+            <select name="token2" id="token2" required></select>
+          </div>
+          <input name="custom2" id="custom2" class="custom" placeholder="Token address (resource_…)" hidden />
+          <small class="hint" id="hint2"></small>
+        </div>
+
+        <div class="leg">
+          <div class="leg-title">Offer valid for</div>
+          <div class="seg" role="radiogroup">
+            <label><input type="radio" name="expiry" value="1" /> 1 hour</label>
+            <label><input type="radio" name="expiry" value="6" /> 6 hours</label>
+            <label><input type="radio" name="expiry" value="72" checked /> 3 days</label>
+          </div>
+        </div>
+
+        <label class="check"><input type="checkbox" name="partial" id="partial" checked /> Allow partial fills <small class="muted">(buyers can take part of your offer)</small></label>
+
+        <details class="adv">
+          <summary>Reserve for a specific buyer (optional)</summary>
+          <input name="reserved" id="reserved" placeholder="Buyer's badge number, e.g. 12" />
+          <small class="hint" id="reserved-note">Requires at least 1,000 HARD locked and an extra reservation fee in HARD. Leave empty for a public offer.</small>
+        </details>
+
+        <div class="summary" id="create-summary"></div>
+        <p class="err" id="create-error"></p>
+
+        <div class="dlg-actions">
+          <button type="button" data-close>Cancel</button>
+          <button type="submit" class="primary" id="submit-offer">Review &amp; sign in wallet</button>
         </div>
       </form>
     </dialog>
 
-    <footer class="foot">
-      <a id="desk-switch" href="#stary">Stary desk (v1): odbierz tokeny ze starych ofert</a>
-    </footer>
-    <div id="toast" hidden></div>
+    <!-- BUY (partial) -->
+    <dialog id="buy-dialog">
+      <form id="buy-form" novalidate>
+        <div class="dlg-head"><h2 id="buy-title">Buy</h2><button type="button" class="x" data-close>✕</button></div>
+        <p class="muted" id="buy-sub"></p>
+        <div class="leg">
+          <div class="leg-title">How much do you want to pay?</div>
+          <div class="inline">
+            <input id="buy-amount" type="number" min="0" step="any" />
+            <button type="button" id="buy-max">Max</button>
+          </div>
+          <input id="buy-range" type="range" min="1" max="100" value="100" aria-label="Share of the offer" />
+          <small class="hint" id="buy-hint"></small>
+        </div>
+        <div class="summary" id="buy-summary"></div>
+        <p class="err" id="buy-error"></p>
+        <div class="dlg-actions">
+          <button type="button" data-close>Cancel</button>
+          <button type="submit" class="primary" id="buy-ok">Review &amp; sign in wallet</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- PROMOTE -->
+    <dialog id="promote-dialog">
+      <div class="dlg-head"><h2 id="promote-title">Feature offer</h2><button type="button" class="x" data-close>✕</button></div>
+      <p class="muted">Your offer is pinned at the top of the market with a ★ badge. You can add more time later.</p>
+      <div class="leg-title">How long?</div>
+      <div class="seg" role="radiogroup" id="promote-days">
+        <label><input type="radio" name="pdays" value="1" checked /> 1 day</label>
+        <label><input type="radio" name="pdays" value="2" /> 2 days</label>
+        <label><input type="radio" name="pdays" value="3" /> 3 days</label>
+        <label><input type="radio" name="pdays" value="7" /> 7 days</label>
+      </div>
+      <div class="summary" id="promote-summary"></div>
+      <p class="err" id="promote-error"></p>
+      <div class="dlg-actions">
+        <button type="button" data-close>Cancel</button>
+        <button type="button" class="primary" id="promote-ok">Review &amp; sign in wallet</button>
+      </div>
+    </dialog>
+
+    <!-- CONFIRM ACTION -->
+    <dialog id="confirm-dialog">
+      <div class="dlg-head"><h2 id="confirm-title">Confirm</h2><button type="button" class="x" data-close>✕</button></div>
+      <div class="summary" id="confirm-body"></div>
+      <p class="muted">You will review and sign this transaction in your Radix Wallet.</p>
+      <div class="dlg-actions">
+        <button type="button" data-close>Cancel</button>
+        <button type="button" class="primary" id="confirm-ok">Sign in wallet</button>
+      </div>
+    </dialog>
+
+    <div id="toast" role="status" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
