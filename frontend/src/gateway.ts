@@ -68,8 +68,13 @@ export type DeskInfo = {
   unlockingKvs: string
   unlockReadyKvs: string
   unlockPeriod: number
+  listingFeesHard: number
+  treasuryWithdrawn: { address: string; amount: string }[]
+  treasuryKvs: string
+  adminBadge: string
+  paused: boolean
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -88,6 +93,11 @@ export async function loadDeskInfo() {
     unlockingKvs: state.unlocking ?? '',
     unlockReadyKvs: state.unlock_ready_at ?? '',
     unlockPeriod: Number(state.unlock_period_seconds ?? 0),
+    listingFeesHard: Number(state.listing_fees_hard ?? 0),
+    treasuryWithdrawn: (state.treasury_withdrawn ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
+    treasuryKvs: state.treasury ?? state.fees ?? '',
+    adminBadge: state.admin_badge ?? '',
+    paused: state.paused === true,
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -124,6 +134,17 @@ export async function getUnlock(riderId: string): Promise<{ amount: number; read
   const ready = decode(t.entries?.[0]?.value?.programmatic_json)
   const sec = ready == null ? 0 : typeof ready === 'object' ? Number(ready.seconds_since_unix_epoch) : Number(ready)
   return { amount: vault ? await getVaultAmount(vault) : 0, readyAt: sec * 1000 }
+}
+
+/** Ile danego tokena jest teraz w skarbcu. */
+export async function getTreasuryBalance(resource: string): Promise<number> {
+  if (!desk.treasuryKvs || !resource) return 0
+  const data = await post('/state/key-value-store/data', {
+    key_value_store_address: desk.treasuryKvs,
+    keys: [{ key_json: { kind: 'Reference', value: resource } }],
+  })
+  const vault = data.entries?.[0]?.value?.programmatic_json?.value
+  return vault ? getVaultAmount(vault) : 0
 }
 
 /** Mnożnik opłaty dla danej ilości zablokowanych HARD. */

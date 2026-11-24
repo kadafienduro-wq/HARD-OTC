@@ -12,7 +12,7 @@
 //! 8. Wypłata locka: najpierw prośba (request_unlock), po okresie oczekiwania
 //!    (domyślnie 7 dni, ustawia admin) odbiór (withdraw_unlocked). HARD w trakcie
 //!    wypłaty nie liczą się do rabatu.
-//! 7. Wystawienie oferty kosztuje opłatę w HARD (domyślnie 1000 HARD, ustawia admin).
+//! 7. Wystawienie oferty kosztuje opłatę w HARD (domyślnie 100 HARD, admin ustawia 0–100).
 //!    Trafia do skarbca i nie wraca przy anulowaniu.
 //! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
 //!
@@ -109,6 +109,8 @@ mod hard_otc {
     }
 
     struct OtcDesk {
+        /// badge admina (strona pokazuje panel admina portfelom, które go mają)
+        admin_badge: ResourceAddress,
         rider_badge: NonFungibleResourceManager,
         hard_resource: ResourceAddress,
         /// (próg zablokowanych HARD, mnożnik opłaty) rosnąco po progu
@@ -124,6 +126,10 @@ mod hard_otc {
         treasury: KeyValueStore<ResourceAddress, Vault>,
         /// łącznie zarobione opłaty (do przejrzystości na stronie)
         fees_collected: IndexMap<ResourceAddress, Decimal>,
+        /// łącznie HARD zarobione z opłat za ogłoszenia
+        listing_fees_hard: Decimal,
+        /// łącznie wypłacone ze skarbca (na buyback / płynność)
+        treasury_withdrawn: IndexMap<ResourceAddress, Decimal>,
         /// HARD zamknięte na zawsze. Nie ma metody, która je wypłaca.
         burned_hard: Vault,
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
@@ -163,6 +169,7 @@ mod hard_otc {
                 .create_with_no_initial_supply();
 
             let component = Self {
+                admin_badge: admin_badge.resource_address(),
                 rider_badge,
                 hard_resource,
                 discount_tiers: vec![
@@ -172,12 +179,14 @@ mod hard_otc {
                 ],
                 fee_rate_per_side: dec!("0.0075"),
                 hard_burn_share: Decimal::ZERO,
-                listing_fee_hard: dec!("1000"),
+                listing_fee_hard: dec!("100"),
                 next_offer_id: 1,
                 offers: KeyValueStore::new(),
                 escrow: KeyValueStore::new(),
                 treasury: KeyValueStore::new(),
                 fees_collected: IndexMap::new(),
+                listing_fees_hard: Decimal::ZERO,
+                treasury_withdrawn: IndexMap::new(),
                 burned_hard: Vault::new(hard_resource),
                 hard_locks: KeyValueStore::new(),
                 unlocking: KeyValueStore::new(),
@@ -245,6 +254,7 @@ mod hard_otc {
             assert!(listing_fee.amount() >= self.listing_fee_hard, "Listing fee too small");
             if self.listing_fee_hard > Decimal::ZERO {
                 let fee = listing_fee.take(self.listing_fee_hard);
+                self.listing_fees_hard = self.listing_fees_hard.checked_add(fee.amount()).unwrap();
                 self.collect_fee(fee);
             }
 
@@ -446,10 +456,14 @@ mod hard_otc {
 
         /// Wypłata ze skarbca (np. na buyback HARD albo płynność na Ociswap).
         pub fn withdraw_treasury(&mut self, resource: ResourceAddress) -> Bucket {
-            self.treasury
+            let bucket = self
+                .treasury
                 .get_mut(&resource)
                 .expect("Nothing in treasury for this resource")
-                .take_all()
+                .take_all();
+            let entry = self.treasury_withdrawn.entry(resource).or_insert(Decimal::ZERO);
+            *entry = entry.checked_add(bucket.amount()).unwrap();
+            bucket
         }
 
         pub fn set_paused(&mut self, paused: bool) {
@@ -465,6 +479,7 @@ mod hard_otc {
         /// Opłata w HARD za wystawienie oferty (0 = darmowe wystawianie).
         pub fn set_listing_fee(&mut self, amount: Decimal) {
             assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
+            assert!(amount <= dec!("100"), "Listing fee cannot exceed 100 HARD");
             self.listing_fee_hard = amount;
         }
 

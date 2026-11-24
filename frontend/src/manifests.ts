@@ -66,3 +66,22 @@ CALL_METHOD Address("${desk()}") "request_unlock" Proof("rider") Decimal("${amou
 
 export const withdrawUnlocked = (account: string, riderId: string) => `${riderProof(account, riderId)}
 CALL_METHOD Address("${desk()}") "withdraw_unlocked" Proof("rider");${depositAll(account)}`
+
+// ---------- Admin (wymaga badge'a admina w portfelu) ----------
+const adminProof = (account: string, adminBadge: string) => `
+CALL_METHOD Address("${account}") "create_proof_of_amount" Address("${adminBadge}") Decimal("1");`
+
+export const adminSetListingFee = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_listing_fee" Decimal("${amount}");`
+
+export const adminSetUnlockPeriod = (account: string, adminBadge: string, seconds: number) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_unlock_period" ${Math.round(seconds)}i64;`
+
+export const adminSetBurnShare = (account: string, adminBadge: string, share: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_burn_share" Decimal("${share}");`
+
+export const adminSetPaused = (account: string, adminBadge: string, paused: boolean) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_paused" ${paused};`
+
+export const adminWithdrawTreasury = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_treasury" Address("${resource}");${depositAll(account)}`
