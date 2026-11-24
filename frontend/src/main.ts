@@ -414,7 +414,7 @@ async function updateLsuQuote() {
   $('#lsu-quote').innerHTML = `
     <div class="sline"><span>Current value of your staked XRD</span><b>${xrd ? nf(xrd) + ' XRD' : 'unavailable'}</b></div>
     <div class="sline"><span>You get (${Math.round(desk.lsuPayout * 100)}% of value, at ${nf(priceNow(), 6)} XRD per HARD)</span><b>≈ ${nf(lsuQuote.hard)} HARD</b></div>
-    <p class="snote">Final amount uses the staked XRD value and the live Ociswap HARD price at the moment HARD ADV completes the sale. You'll never get less than ${nf(lsuQuote.hard * 0.97)} HARD (−3% tolerance); otherwise the request is rejected and your LSU returned.</p>`
+    <p class="snote">Final amount uses the staked XRD value and the live Ociswap HARD price at the moment HARD ADV completes the sale. You'll never get less than ${nf(lsuQuote.hard * 0.99)} HARD (−1% tolerance); otherwise the request is rejected and your LSU returned.</p>`
 }
 $('#lsu-amount').addEventListener('input', updateLsuQuote)
 $('#lsu-token').addEventListener('change', updateLsuQuote)
@@ -427,7 +427,7 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   await updateLsuQuote()
   if (!lsuQuote.hard) return toast('Could not price this LSU right now. Try again shortly.')
   if (lsuQuote.hard > desk.lsuMaxPerTx) return toast(`Max per request is ${nf(desk.lsuMaxPerTx)} HARD. Sell a smaller amount.`)
-  const min = lsuQuote.hard * 0.97
+  const min = lsuQuote.hard * 0.99
   confirmAction('Request staked XRD sale', [
     ['You send to escrow', `${nf(amount)} ${esc(sym(lsu))}`],
     ['Value now', `${nf(lsuQuote.xrd)} XRD`],
