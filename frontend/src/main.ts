@@ -575,12 +575,18 @@ function renderAdmin() {
     ? pend.map((r) => {
         const xrd = lsuValue.get(r.id) ?? 0
         const pay = payoutFor(xrd)
-        const ok = pay.xrd >= r.minXrdOut && pay.hard >= r.minHardOut && pay.hard <= buybackPool && pay.xrd <= buybackXrd && pay.hard <= desk.lsuMaxPerTx && pay.total <= lsuLeftToday() && priceNow() > 0
+        const why = !priceNow() ? 'no HARD price'
+          : pay.xrd > buybackXrd ? `add XRD to the buyback wallet (need ${nf(pay.xrd)}, have ${nf(buybackXrd)})`
+          : pay.hard > buybackPool ? `add HARD to the buyback wallet (need ${nf(pay.hard)}, have ${nf(buybackPool)})`
+          : pay.total > lsuLeftToday() ? 'daily limit reached'
+          : pay.hard > desk.lsuMaxPerTx ? 'above max HARD per request'
+          : pay.xrd < r.minXrdOut || pay.hard < r.minHardOut ? 'below seller minimum, reject it' : ''
+        const ok = !why
         return `<tr><td class="n">#${r.id}<br><small class="rep">Badge ${badgeNo(r.requester)}</small></td>
           <td>${tok(r.lsu, r.lsuAmount)}</td>
           <td class="n">${xrd ? nf(xrd) + ' XRD' : '–'}</td>
-          <td class="n">${payText(pay)}<br><small class="rep">min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}</small>${!ok ? '<br><small class="red">cannot accept now</small>' : ''}</td>
-          <td><span class="actions"><button class="primary" data-lsu-accept="${r.id}" ${ok ? '' : 'disabled'}>Accept</button><button data-lsu-reject="${r.id}">Reject</button></span></td></tr>`
+          <td class="n">${payText(pay)}<br><small class="rep">min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}</small>${!ok ? `<br><small class="red">${esc(why)}</small>` : ''}</td>
+          <td><span class="actions"><button class="primary" data-lsu-accept="${r.id}">Accept</button><button data-lsu-reject="${r.id}">Reject</button></span></td></tr>`
       }).join('')
     : '<tr><td colspan="5" class="empty">No pending requests.</td></tr>'
   $('#adm-lsu-hold').innerHTML = lsuHoldings.length
