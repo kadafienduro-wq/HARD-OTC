@@ -102,17 +102,19 @@ async function render() {
 
   // Rynek
   const open = offers.filter((o) => o.status === 'Open' && o.expiresAt > Date.now())
-  const visible = open.filter((o) => !o.reservedBuyer || riderIds.includes(o.reservedBuyer) || riderIds.includes(o.seller))
+  const visible = open
   $('#market-body').innerHTML = visible.length
     ? visible
         .map((o) => {
           const mine = riderIds.includes(o.seller)
           return `<tr>
-            <td>${o.id}${o.reservedBuyer ? ' 🔒' : ''}</td>
+            <td>${o.id}${o.reservedBuyer ? `<br><small class="muted">🔒 ${riderIds.includes(o.reservedBuyer) ? 'dla Ciebie' : 'zarezerwowana'}</small>` : ''}</td>
             <td>${tok(o.sellResource, o.sellAmount)}</td>
             <td>${tok(o.askResource, o.askAmount)}</td>
             <td>${timeLeft(o.expiresAt)}</td>
-            <td>${mine ? '<span class="muted">Twoja</span>' : `<button data-accept="${o.id}" ${myRider ? '' : 'disabled title="Potrzebujesz Rider Badge"'}>Kup</button>`}</td>
+            <td>${mine ? '<span class="muted">Twoja</span>' : o.reservedBuyer && !riderIds.includes(o.reservedBuyer)
+                ? '<button disabled title="Oferta zarezerwowana dla innej osoby">Zarezerwowana</button>'
+                : `<button data-accept="${o.id}" ${myRider ? '' : 'disabled title="Potrzebujesz Rider Badge"'}>Kup</button>`}</td>
           </tr>`
         })
         .join('')
