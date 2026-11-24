@@ -1,0 +1,22 @@
+name: Pobierz logo
+on:
+  push:
+    paths: ['.github/workflows/lookup.yml']
+permissions:
+  contents: write
+jobs:
+  logo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3
+      - run: |
+          mkdir -p frontend/public
+          curl -sfL https://trade.hardadv.eu/assets/hard-token.png -o frontend/public/hard-token.png || curl -sfL https://res.cloudinary.com/xp36eid1/image/upload/v1795282558/hard-adv-token-transparent.png -o frontend/public/hard-token.png
+          ls -la frontend/public; file frontend/public/hard-token.png
+          git config user.name "Claude"; git config user.email "noreply@anthropic.com"
+          git rm -q .github/workflows/lookup.yml
+          git add frontend/public/hard-token.png
+          git commit -m "Add HARD ADV token logo"
+          git push origin HEAD:v3
