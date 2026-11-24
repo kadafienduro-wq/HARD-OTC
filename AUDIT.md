@@ -11,10 +11,9 @@ A peer-to-peer OTC escrow for fungible Radix tokens, with extras around the HARD
 * **Fees.** There is a listing fee (HARD), a reservation fee (HARD per started 24 h) and a featuring fee (HARD per 24 h). A trading fee is charged per side, in the token each side receives, and goes to the treasury.
 * **HARD lock.** Users lock HARD to get fee discounts (−20 / −40 / −60 % at 1k / 10k / 50k HARD). Unlocking is two-step, with a waiting period (default 7 days, max 30).
 * **Staked XRD buyback.** Users sell LSUs (validator liquid stake units) to the desk. Every request is held in escrow and **accepted or rejected manually by the admin**. The payout is the LSU redemption value × (1 − fee), paid partly in XRD and partly in HARD (default 80/20). The HARD part is priced at an admin-supplied XRD/HARD price; the front-end reads it from Ociswap and sets it in the same transaction as the accept.
-* **Community pool.** Users deposit HARD for pool shares (HBPS) to fund the buyback. It is **off by default** and not intended to be enabled for now.
 * **Faucet.** A HARD faucet for testers or promotions: one claim per badge, admin-funded, off by default.
 
-Identity is a free, numbered, transferable non-fungible **HARD OTC Badge** (integer IDs #1, #2, …). Badges are not Sybil-resistant by design.
+Identity is a free, numbered, **non-transferable** (soulbound since v8) non-fungible **HARD OTC Badge** (integer IDs #1, #2, …). Badges are not Sybil-resistant: anyone can mint more.
 
 ## 2. Repository layout
 
@@ -51,30 +50,40 @@ What the admin **cannot** do (please verify): take escrowed offer tokens, take l
 * `faucet`: HARD for the faucet.
 * Pool share resource (HBPS) and related accounting (`pool_outstanding_cost`, …).
 
-## 5. Things we already hardened (please re-check)
+## 5. Internal audit (v8): findings and fixes
 
-* **Fake LSU / fake validator.** The LSU resource's `validator` metadata must point to an entity of type `GlobalValidator`; the validator's `pool_unit` metadata must equal the LSU; value comes from `get_redemption_value`. Without the entity-type check, a user-deployed component pretending to be a validator could report an arbitrary redemption value. Covered by test `falszywe_lsu_odrzucone`. A fake-validator *component* test is not written yet.
-* **Payout targets.** Payouts go only to real accounts (`assert_real_account`: `GlobalAccount` / preallocated account entity types).
-* **Featuring.** Featuring cannot be bought on an expired offer or beyond the offer's lifetime.
-* **Accept rules.** Users cannot fill their own offer. Reserved offers only accept the reserved badge.
-* **LSU limits.** Per-request value limit (checked at request), daily payout limit (rolling 24 h window, checked at accept), max HARD per request.
-* **Admin badges.** Two admin badges, so losing one does not lock funds forever.
-* **Rounding.** Partial withdrawals and partial fills use `WithdrawStrategy::Rounded(ToZero)` and divisibility checks.
+| # | Severity | Finding | Who loses | Fix in v8 | Test |
+|---|---|---|---|---|---|
+| 1 | Critical | Offers, locked HARD, unlocking HARD and LSU requests belong to the **badge ID**, and the badge was **transferable**. Sending, selling or phishing the badge moved control of the funds to the new holder. | User | Badge is soulbound (`withdrawer => deny_all`). | `badge_jest_nieprzenosny` |
+| 2 | High | Funds of expired offers stayed in escrow until the seller acted. There was no recovery path, and the admin could not help. | User | `reclaim_expired_offer`: **anyone** can call it after expiry; tokens go **only** to the seller's account. | `wygasla_oferte_moze_zwrocic_kazdy_tylko_sprzedajacemu` |
+| 3 | High | There was no way to unwind an offer with a malicious token. | Buyers | `admin_return_offer`: the admin can return an open offer, but **only** to the seller's account; the admin receives nothing. | `admin_zwraca_oferte_tylko_sprzedajacemu` |
+| 4 | High | Any token could be listed, including ones whose issuer can **recall or freeze** them, from the escrow or from the buyer after the purchase. | Buyer or seller | Verified-only mode, ON by default. Full fills also assert that the escrow still holds the promised amount. | `tylko_zweryfikowane_tokeny_domyslnie` |
+| 5 | High | The admin could raise the trading fee (up to 1 %) right before someone's fill, on existing offers. | Both sides | The fee rate is frozen in each offer at creation. | `oplata_zamrozona_w_ofercie` |
+| 6 | Medium | The buyer had no on-chain minimum: rounding or state changes between preview and signing reduced what they got. | Buyer | `accept_offer(…, min_receive)`. | `kupujacy_dostaje_co_najmniej_minimum` |
+| 7 | High | The community pool let the admin spend depositors' HARD on LSUs and withdraw those LSUs, so the admin **could take depositors' funds**. | Depositors | The pool was removed entirely. The admin only manages the admin's own capital. | n/a |
+| 8 | Medium | An LSU request with 0 minimums let the admin pay almost nothing by setting an absurd HARD price, payout or split. | Seller | Non-zero `min_xrd_out` / `min_hard_out` are required (for each part that is paid). | `prawdziwe_lsu_wycena_podzial_i_limity` |
+| 9 | Medium | A second `request_unlock` restarted the timer for HARD that was already ready, re-locking it. | User | The contract refuses a new unlock until the ready HARD is withdrawn. | `ponowne_odblokowanie_nie_zeruje_gotowego_hard` |
+| 10 | Medium | `instantiate_with_test_hard` let anyone create a look-alike desk with a fake "HARD" on mainnet. | Users (impersonation) | Removed. | n/a |
 
-## 6. Known limitations and open questions
+Also hardened earlier (v5–v7): only native validators are accepted for LSU valuation (`falszywe_lsu_odrzucone`); payouts go only to real accounts; featuring is capped to the offer's life; there are two admin badges; fees and the unlock period are capped; partial withdrawals are supported.
 
-1. **Price oracle.** The XRD/HARD price is admin-supplied (front-end reads Ociswap). HARD liquidity is thin, so the spot price is manipulable. The UI warns the admin on > 15 %/1 h or > 30 %/24 h moves, but there is no on-chain TWAP.
-2. **Badges are free and transferable.** Reputation and faucet claims are per badge, not per person.
-3. **Arbitrary tokens.** Any fungible token can be listed, including recallable, freezable or deposit-restricted ones. The UI shows a "verified" list curated by the admin, but the contract does not restrict tokens. Please assess the impact of recallable/freezable tokens on escrow and fills.
-4. **Partial fills.** Integer rounding of `out = sell_remaining × pay / ask_remaining` favours the seller. Is dust griefing possible?
-5. **`instantiate_with_test_hard`.** This function exists for testnet convenience. On mainnet anyone could call it to create a separate desk with a fake "HARD" token. It does not affect the official desk, but it enables impersonation. Should it be removed for mainnet?
-6. **Community pool.** The pool logic (`deposit_pool`, `withdraw_pool`, `settle_pool`, `mint_initial_pool_shares`) has received the least testing. It is disabled by default and we may remove it before mainnet.
-7. **Unlock period.** Changing it also affects requests already in progress.
-8. **Upgradeability.** None. A new version means a new package and component, and users migrate by cancelling and re-creating offers.
+### What the admin can and cannot do (v8)
+
+* **Can:** set fees within caps (affecting new offers only), pause new trading, curate verified tokens, accept or reject LSU requests (never below the seller's minimums), return offers to their sellers, and manage the admin's own vaults (treasury fees, buyback XRD and HARD, bought LSUs, faucet).
+* **Cannot:** take escrowed offer tokens, locked or unlocking HARD, or pending LSUs; change the fee of an existing offer; pay an LSU seller less than their minimums. Pausing never blocks exits: cancel, reclaim, unlock, withdraw and LSU cancel all keep working.
+
+## 6. Remaining limitations
+
+1. **Price oracle.** The XRD/HARD price for LSU payouts is admin-supplied. The seller is protected by their own minimums (the UI sets −1 %). The admin is protected by a warning on sudden price moves. There is no on-chain TWAP.
+2. **Sybil.** Badges are free, so reputation and faucet claims are per badge, not per person. Keep the faucet off on mainnet.
+3. **Verified list.** Verified-only mode moves the trust to the admin's list. The admin must check a token's recall and freeze roles before verifying it.
+4. **Recovery.** If a user loses access to their account, the soulbound badge cannot be moved. Expired offers can still be returned to the seller's payout account.
+5. **Rounding.** Partial-fill rounding favours the seller; the amounts are negligible.
+6. **Upgradeability.** None. A new version means a new component.
 
 ## 7. Tests
 
-`testy/tests/bezpieczenstwo.rs`, 12 tests, all passing in CI:
+`testy/tests/bezpieczenstwo.rs`, 19 tests, all passing in CI. Besides the v8 tests listed in section 5:
 
 * `pelna_transakcja_i_oplaty_sa_poprawne`: full fill and exact fee amounts
 * `nie_mozna_kupic_wlasnej_oferty`: self-fill is rejected
@@ -88,6 +97,7 @@ What the admin **cannot** do (please verify): take escrowed offer tokens, take l
 * `falszywe_lsu_odrzucone`: fake LSU rejected
 * `prawdziwe_lsu_wycena_podzial_i_limity`: real validator flow: valuation, 80/20 split, seller minimums, daily limit, double accept
 * `kranik_raz_na_badge_i_tylko_gdy_wlaczony`: faucet rules
+* plus the 7 v8 tests from section 5
 
 To run them locally:
 
@@ -111,4 +121,4 @@ The mainnet HARD token is `resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dp
 * Any way to make a buyer or seller receive less than the agreed amount, or the admin pay more than intended.
 * The LSU valuation path (`lsu_xrd_value`) and the trust it places in validator components.
 * Behaviour with non-standard tokens: recallable, freezable, restricted deposit or withdraw, tokens with 0 divisibility.
-* Whether to remove `instantiate_with_test_hard` and the community pool before mainnet.
+* Anything we missed in section 5.

@@ -51,10 +51,10 @@ CALL_METHOD Address("${desk()}") "create_offer"
 }
 
 /** `payAmount` = ile płacisz (całość albo część przy częściowym kupnie). */
-export const acceptOffer = (account: string, riderId: string, offerId: string, askResource: string, payAmount: string) => `
+export const acceptOffer = (account: string, riderId: string, offerId: string, askResource: string, payAmount: string, minReceive = '0') => `
 CALL_METHOD Address("${account}") "withdraw" Address("${askResource}") Decimal("${payAmount}");
 TAKE_ALL_FROM_WORKTOP Address("${askResource}") Bucket("pay");${riderProof(account, riderId)}
-CALL_METHOD Address("${desk()}") "accept_offer" ${offerId}u64 Proof("rider") Bucket("pay");${depositAll(account)}`
+CALL_METHOD Address("${desk()}") "accept_offer" ${offerId}u64 Proof("rider") Bucket("pay")${deskInfo.version >= 8 ? ` Decimal("${minReceive}")` : ''};${depositAll(account)}`
 
 export const cancelOffer = (account: string, riderId: string, offerId: string) => `${riderProof(account, riderId)}
 CALL_METHOD Address("${desk()}") "cancel_offer" ${offerId}u64 Proof("rider");${depositAll(account)}`
@@ -195,3 +195,13 @@ CALL_METHOD Address("${desk()}") "set_faucet_amount" Decimal("${amount}");`
 
 export const adminWithdrawFaucet = (account: string, adminBadge: string, amount = '0') => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_faucet" Decimal("${amount}");${depositAll(account)}`
+
+/** Zwrot wygasłych ofert sprzedającym — bez badge'a, może każdy (v8+). */
+export const reclaimExpired = (account: string, offerIds: string[]) =>
+  offerIds.map((id) => `\nCALL_METHOD Address("${desk()}") "reclaim_expired_offer" ${id}u64;`).join('') + depositAll(account)
+
+export const adminReturnOffer = (account: string, adminBadge: string, offerId: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "admin_return_offer" ${offerId}u64;`
+
+export const adminSetOnlyVerified = (account: string, adminBadge: string, on: boolean) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_only_verified" ${on};`

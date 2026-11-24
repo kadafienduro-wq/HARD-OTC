@@ -46,6 +46,8 @@ export type OfferView = {
   featuredUntil: number
   expiresAt: number
   reservedBuyer: string | null
+  /** stawka zamrożona w ofercie (v8+), null w starszych */
+  feeRate: number | null
   status: 'Open' | 'Filled' | 'Cancelled'
 }
 
@@ -114,8 +116,9 @@ export type DeskInfo = {
   faucetAmount: number
   faucetClaimedKvs: string
   faucetGiven: number
+  onlyVerified: boolean
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0, version: 0, faucetVault: '', faucetAmount: 0, faucetClaimedKvs: '', faucetGiven: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0, version: 0, faucetVault: '', faucetAmount: 0, faucetClaimedKvs: '', faucetGiven: 0, onlyVerified: false }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -174,6 +177,7 @@ export async function loadDeskInfo() {
     faucetAmount: Number(state.faucet_amount ?? 0),
     faucetClaimedKvs: state.faucet_claimed ?? '',
     faucetGiven: Number(state.faucet_given ?? 0),
+    onlyVerified: state.only_verified === true,
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -363,6 +367,7 @@ export async function getOffers(): Promise<OfferView[]> {
         expiresAt: Number(typeof o.expires_at === 'object' ? o.expires_at.seconds_since_unix_epoch : o.expires_at) * 1000,
         reservedBuyer: reserved.variant === 'Some' || reserved.variant === '1' ? reserved.fields[0] : null,
         status: o.status.variant,
+        feeRate: o.fee_rate != null ? Number(o.fee_rate) : null,
       } as OfferView
     })
     .sort((a: OfferView, b: OfferView) => Number(b.id) - Number(a.id))
