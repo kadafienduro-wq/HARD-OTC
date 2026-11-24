@@ -295,3 +295,30 @@ button.act:hover { background: var(--red); color: #fff; border-color: var(--red)
 .qbreak span { color: var(--muted); }
 
 label.off { opacity: .35; pointer-events: none; }
+
+/* Ikonki tokenów */
+.ico.ph { color: #fff; border-color: rgba(255,255,255,.15); text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.ico-wrap { position: relative; display: inline-flex; flex: none; }
+.ico-badge { position: absolute; right: -4px; bottom: -3px; width: 15px; height: 15px; border-radius: 50%; background: #0e0e0e; border: 1px solid #444; font-size: 9px; line-height: 13px; text-align: center; color: #e6c46a; }
+
+/* Wybór tokena */
+.tp-native { position: absolute !important; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.tp-btn { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 170px; min-height: 46px; padding: 6px 12px; background: #141414; border: 1px solid var(--line); color: var(--text, #fff); cursor: pointer; text-align: left; }
+.tp-btn:hover { border-color: #555; }
+.tp-btn .tp-caret { margin-left: auto; color: var(--muted); font-size: 12px; }
+.tp-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.tp-main b { font-size: 15px; white-space: nowrap; }
+.tp-main small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-main .ver { margin-left: 4px; color: #4ade80; }
+.tp-pop { position: fixed; z-index: 1000; max-height: 360px; overflow: auto; background: #111; border: 1px solid #333; box-shadow: 0 16px 40px rgba(0,0,0,.6); padding: 8px; }
+.tp-pop[hidden] { display: none !important; }
+.tp-search { width: 100%; margin-bottom: 6px; padding: 9px 10px; background: #0b0b0b; border: 1px solid #2c2c2c; color: #fff; }
+.tp-h { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 8px 6px 4px; }
+.tp-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 6px; background: transparent; border: 0; color: inherit; cursor: pointer; text-align: left; }
+.tp-row:hover, .tp-row.on { background: #1c1c1c; }
+.tp-bal { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; color: #ccc; }
+.tp-bal i { font-style: normal; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: #d97706; }
+.tp-empty { color: var(--muted); }
+.tp-btn, .tp-row { text-transform: none; letter-spacing: normal; font-family: inherit; font-weight: 400; }
+.tp-main b { font-weight: 700; letter-spacing: .02em; }
+.tp-main small { text-transform: none; letter-spacing: 0; }

@@ -41,15 +41,30 @@ const pct = (m: number) => `${Math.round((1 - m) * 100)}%`
 const feeRate = (locked: number) => desk.feePerSide * multiplierFor(locked)
 const sym = (addr: string) => tokenInfo(addr).symbol
 const isVerified = (addr: string) => desk.verified.includes(addr)
+const pickerSync: Record<string, () => void> = {}
 const symV = (addr: string) => `${sym(addr)}${isVerified(addr) ? ' ✓' : ''}`
 
+/** Kolor zastępczej ikonki – stały dla danego tokena. */
+function hue(addr: string) {
+  let h = 0
+  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) % 360
+  return h
+}
+function placeholder(addr: string, letter: string, staked = false) {
+  const h = hue(addr)
+  return `<span class="ico ph${staked ? ' staked' : ''}" style="background:linear-gradient(135deg,hsl(${h} 55% 38%),hsl(${(h + 40) % 360} 60% 22%))">${letter}</span>`
+}
+const XRD_ICON = 'https://assets.radixdlt.com/icons/icon-xrd-32x32.png'
 function icon(addr: string) {
   if (addr === CONFIG.hardResource) return '<img class="ico" src="hard-token.png" alt="">'
   const t = tokenInfo(addr)
-  const letter = esc(t.symbol.slice(0, 1).toUpperCase())
-  return t.icon
-    ? `<img class="ico" src="${esc(t.icon)}" alt="" loading="lazy" data-letter="${letter}">`
-    : `<span class="ico ph">${letter}</span>`
+  const letter = esc((t.symbol || '?').slice(0, 1).toUpperCase())
+  const src = addr === XRD ? XRD_ICON : t.icon
+  const staked = !!t.validator
+  const img = src
+    ? `<img class="ico" src="${esc(src)}" alt="" loading="lazy" data-letter="${letter}" data-addr="${esc(addr)}"${staked ? ' data-staked="1"' : ''}>`
+    : placeholder(addr, staked ? 'S' : letter, staked)
+  return staked ? `<span class="ico-wrap">${img}<span class="ico-badge" title="Staked XRD">⛁</span></span>` : img
 }
 /** Token icon + amount + symbol (✓ if verified), with name and address in small print. */
 function tok(addr: string, amount?: number) {
@@ -74,10 +89,9 @@ function periodText(sec: number) {
 document.addEventListener('error', (e) => {
   const img = e.target as HTMLImageElement
   if (img.tagName === 'IMG' && img.classList.contains('ico')) {
-    const span = document.createElement('span')
-    span.className = 'ico ph'
-    span.textContent = img.dataset.letter ?? '?'
-    img.replaceWith(span)
+    const tmp = document.createElement('span')
+    tmp.innerHTML = placeholder(img.dataset.addr ?? '', img.dataset.staked ? 'S' : img.dataset.letter ?? '?', !!img.dataset.staked)
+    img.replaceWith(tmp.firstElementChild!)
   }
 }, true)
 
@@ -1061,7 +1075,9 @@ $('#buy-form').addEventListener('submit', (e) => {
 const createDlg = $<HTMLDialogElement>('#create-dialog')
 const form = $<HTMLFormElement>('#create-form')
 const mode = () => (document.querySelector('input[name=mode]:checked') as HTMLInputElement).value as 'sell' | 'buy'
-const walletTokens = () => balances.filter((b) => b.address !== desk.adminBadge && b.address !== CONFIG.riderBadgeResource).map((b) => b.address)
+// tylko tokeny zamienne (bez badge'y i NFT) – NFT mają w adresie "1n…"
+const isNft = (a: string) => /^resource_(rdx|tdx_\d+_)1n/.test(a)
+const walletTokens = () => balances.filter((b) => b.address !== desk.adminBadge && !isNft(b.address) && !/admin/i.test(tokenInfo(b.address).name)).map((b) => b.address)
 const anyTokens = () => [...new Set([XRD, CONFIG.hardResource, ...desk.verified, ...walletTokens()])].filter(Boolean)
 
 function fillSelect(sel: HTMLSelectElement, list: string[], prefer: string, withCustom: boolean) {
@@ -1070,6 +1086,7 @@ function fillSelect(sel: HTMLSelectElement, list: string[], prefer: string, with
     (withCustom ? '<option value="custom">Other token…</option>' : '')
   if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev
   else if ([...sel.options].some((o) => o.value === prefer)) sel.value = prefer
+  pickerSync[sel.id]?.()
 }
 function fillTokenSelects() {
   const sell = mode() === 'sell'
@@ -1267,3 +1284,88 @@ const legToken = (n: 1 | 2) => {
 quickFill('amount1', () => bal(legToken(1)))
 quickFill('amount2', () => bal(legToken(2)))
 { const q2 = document.getElementById('quick-amount2'); if (q2) q2.hidden = true }
+
+
+// ---------- Ładny wybór tokena (ikona, nazwa, ✓, saldo) zamiast zwykłej listy ----------
+function tokenPicker(sel: HTMLSelectElement) {
+  sel.classList.add('tp-native')
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'tp-btn'
+  sel.insertAdjacentElement('afterend', btn)
+  const pop = document.createElement('div')
+  pop.className = 'tp-pop'
+  pop.hidden = true
+  // w oknie dialogowym (modal) lista musi być w tym samym oknie, inaczej jest nieklikalna
+  ;(sel.closest('dialog') ?? document.body).appendChild(pop)
+
+  const label = (v: string) => {
+    if (!v) return '<span class="tp-empty">No tokens</span>'
+    if (v === 'custom') return '<span class="ico ph">+</span><span class="tp-main"><b>Other token…</b><small>paste an address</small></span>'
+    const t = tokenInfo(v)
+    const mark = isVerified(v) ? '<span class="ver">✓</span>' : ''
+    return `${icon(v)}<span class="tp-main"><b>${esc(t.symbol)}${mark}</b><small>${t.validator ? 'Staked XRD · ' : ''}${esc(short(v))}</small></span>`
+  }
+  const sync = () => { btn.innerHTML = label(sel.value) + '<span class="tp-caret">▾</span>' }
+
+  const render = (q = '') => {
+    const opts = [...sel.options].filter((o) => o.value)
+    const match = (v: string) => {
+      if (!q) return true
+      if (v === 'custom') return true
+      const t = tokenInfo(v)
+      return `${t.symbol} ${t.name} ${v}`.toLowerCase().includes(q.toLowerCase())
+    }
+    const row = (v: string) => {
+      const t = v === 'custom' ? null : tokenInfo(v)
+      const b = v === 'custom' ? 0 : balanceOf(v)
+      const right = v === 'custom' ? '' : `<span class="tp-bal">${b > 0 ? nf(b) : ''}${!isVerified(v) ? '<i class="unver">unverified</i>' : ''}</span>`
+      return `<button type="button" class="tp-row${v === sel.value ? ' on' : ''}" data-v="${esc(v)}">${label(v)}${t && t.name && t.name !== t.symbol ? '' : ''}${right}</button>`
+    }
+    const ver = opts.filter((o) => o.value !== 'custom' && isVerified(o.value) && match(o.value)).map((o) => o.value)
+    const other = opts.filter((o) => o.value !== 'custom' && !isVerified(o.value) && match(o.value)).map((o) => o.value)
+    const custom = opts.some((o) => o.value === 'custom')
+    pop.innerHTML = `<input class="tp-search" placeholder="Search name or address" value="${esc(q)}">
+      ${ver.length ? `<div class="tp-h">Verified</div>${ver.map(row).join('')}` : ''}
+      ${other.length ? `<div class="tp-h">Other tokens · check the address</div>${other.map(row).join('')}` : ''}
+      ${custom ? row('custom') : ''}
+      ${!ver.length && !other.length && !custom ? '<div class="tp-h">Nothing found</div>' : ''}`
+    const inp = pop.querySelector<HTMLInputElement>('.tp-search')!
+    inp.addEventListener('input', () => { const pos = inp.selectionStart; render(inp.value); const n = pop.querySelector<HTMLInputElement>('.tp-search')!; n.focus(); n.setSelectionRange(pos, pos) })
+  }
+  const place = () => {
+    const r = btn.getBoundingClientRect()
+    pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 340))}px`
+    const below = innerHeight - r.bottom
+    pop.style.top = below > 260 ? `${r.bottom + 4}px` : `${Math.max(8, r.top - Math.min(360, r.top - 8) - 4)}px`
+    pop.style.minWidth = `${Math.max(r.width, 300)}px`
+  }
+  const close = () => { pop.hidden = true }
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (!pop.hidden) return close()
+    document.querySelectorAll<HTMLElement>('.tp-pop').forEach((p) => (p.hidden = true))
+    render(); place(); pop.hidden = false
+    pop.querySelector<HTMLInputElement>('.tp-search')?.focus()
+  })
+  pop.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const r = (e.target as HTMLElement).closest<HTMLElement>('.tp-row')
+    if (!r) return
+    sel.value = r.dataset.v!
+    sel.dispatchEvent(new Event('change', { bubbles: true }))
+    sync(); close()
+  })
+  document.addEventListener('click', close)
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close() })
+  addEventListener('resize', close)
+  addEventListener('scroll', close, true)
+  sel.addEventListener('change', sync)
+  new MutationObserver(sync).observe(sel, { childList: true })
+  sync()
+  return sync
+}
+for (const id of ['token1', 'token2', 'lsu-token']) {
+  const el = document.getElementById(id) as HTMLSelectElement | null
+  if (el) pickerSync[id] = tokenPicker(el)
+}
