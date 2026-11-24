@@ -1,0 +1,10 @@
+name: Odczyt transakcji
+on:
+  push:
+    paths: ['.github/workflows/lookup.yml']
+jobs:
+  odczyt:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -s -i https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn -H 'Origin: https://kadafienduro-wq.github.io' | head -c 3000 | sed 's/^/OUT /'
