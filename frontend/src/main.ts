@@ -2,8 +2,8 @@ import { RadixDappToolkit, RadixNetwork, DataRequestBuilder } from '@radixdlt/ra
 import { CONFIG } from './config'
 import * as M from './manifests'
 import {
-  desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getTokens, getTreasuryBalance, getVaultAmount,
-  loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView,
+  desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
+  getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
 } from './gateway'
 
 // ---------- State ----------
@@ -16,11 +16,13 @@ let myUnlock = { amount: 0, readyAt: 0 }
 let burned = 0
 let treasuryHard = 0
 let treasuryAll: { address: string; amount: number }[] = []
+let stats = new Map<string, RiderStats>()
 let loaded = false
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
 const myRider = () => riderIds[0]
 const balanceOf = (addr: string) => Number(balances.find((b) => b.address === addr)?.amount ?? 0)
+const XRD = CONFIG.knownResources[0]?.address ?? ''
 
 // ---------- Formatting ----------
 const esc = (s: string) =>
@@ -29,6 +31,8 @@ const nf = (n: number, d = 4) => n.toLocaleString('en-US', { maximumFractionDigi
 const pct = (m: number) => `${Math.round((1 - m) * 100)}%`
 const feeRate = (locked: number) => desk.feePerSide * multiplierFor(locked)
 const sym = (addr: string) => tokenInfo(addr).symbol
+const isVerified = (addr: string) => desk.verified.includes(addr)
+const symV = (addr: string) => `${sym(addr)}${isVerified(addr) ? ' ✓' : ''}`
 
 function icon(addr: string) {
   const t = tokenInfo(addr)
@@ -37,11 +41,12 @@ function icon(addr: string) {
     ? `<img class="ico" src="${esc(t.icon)}" alt="" loading="lazy" data-letter="${letter}">`
     : `<span class="ico ph">${letter}</span>`
 }
-/** Token icon + amount + symbol, with name and address in small print. */
+/** Token icon + amount + symbol (✓ if verified), with name and address in small print. */
 function tok(addr: string, amount?: number) {
   const t = tokenInfo(addr)
+  const mark = isVerified(addr) ? '<span class="ver" title="Verified by HARD ADV">✓</span>' : '<span class="unver" title="Not verified. Check the address.">UNVERIFIED</span>'
   const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}${esc(short(addr))}`
-  return `<span class="tok">${icon(addr)}<span><b>${amount !== undefined ? nf(amount) + ' ' : ''}${esc(t.symbol)}</b><small title="${esc(addr)}">${sub}</small></span></span>`
+  return `<span class="tok">${icon(addr)}<span><b>${amount !== undefined ? nf(amount) + ' ' : ''}${esc(t.symbol)}${mark}</b><small title="${esc(addr)}">${sub}</small></span></span>`
 }
 function timeLeft(ms: number) {
   const diff = ms - Date.now()
@@ -56,7 +61,6 @@ function periodText(sec: number) {
   if (sec >= 3600) return `${Math.round(sec / 3600)} hours`
   return `${Math.max(1, Math.round(sec / 60))} minutes`
 }
-// Broken token icons fall back to a letter badge
 document.addEventListener('error', (e) => {
   const img = e.target as HTMLImageElement
   if (img.tagName === 'IMG' && img.classList.contains('ico')) {
@@ -67,12 +71,28 @@ document.addEventListener('error', (e) => {
   }
 }, true)
 
+// ---------- Offer helpers ----------
+/** "buy" = buy request (someone locks XRD to get a token); "sell" = sell offer. */
+const kindOf = (o: OfferView): 'buy' | 'sell' => (o.sellResource === XRD ? 'buy' : 'sell')
+const baseOf = (o: OfferView) => (kindOf(o) === 'buy' ? o.askResource : o.sellResource)
+const quoteOf = (o: OfferView) => (kindOf(o) === 'buy' ? o.sellResource : o.askResource)
+/** Price as quote per 1 base token. */
+const priceOf = (o: OfferView) =>
+  kindOf(o) === 'buy' ? Number(o.sellAmount) / Number(o.askAmount) : Number(o.askAmount) / Number(o.sellAmount)
+const filledPct = (o: OfferView) => Math.round((1 - Number(o.askRemaining) / Number(o.askAmount)) * 100)
+const isFeatured = (o: OfferView) => o.featuredUntil > Date.now()
+const repText = (id: string) => {
+  const s = stats.get(id)
+  const n = s ? s.sells + s.buys : 0
+  return n ? `${n} trade${n === 1 ? '' : 's'} completed` : 'new rider'
+}
+
 // ---------- Radix dApp Toolkit ----------
 const rdt = RadixDappToolkit({
   dAppDefinitionAddress: CONFIG.dAppDefinitionAddress,
   networkId: RadixNetwork.Stokenet,
   applicationName: 'HARD ADV OTC Desk',
-  applicationVersion: '0.2.0',
+  applicationVersion: '0.3.0',
 })
 rdt.walletApi.setRequestData(DataRequestBuilder.accounts().exactly(1))
 rdt.walletApi.walletData$.subscribe(async (data) => {
@@ -113,6 +133,10 @@ $('#confirm-ok').addEventListener('click', () => {
 document.querySelectorAll('[data-close]').forEach((b) =>
   b.addEventListener('click', () => (b.closest('dialog') as HTMLDialogElement).close()),
 )
+const unverifiedNote = (...addrs: string[]) =>
+  addrs.some((a) => !isVerified(a))
+    ? '<span class="warnline">⚠ This offer includes an UNVERIFIED token. Anyone can create a token with any name. Check the address before you sign.</span><br>'
+    : ''
 
 // ---------- Data ----------
 async function refreshAll() {
@@ -127,16 +151,18 @@ async function refreshAll() {
       getVaultAmount(desk.burnedVault).catch(() => 0),
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
+    ;[stats, treasuryAll] = await Promise.all([
+      getRiderStats(offers.map((o) => o.seller)).catch(() => new Map()),
+      Promise.all(desk.feesCollected.map(async (f) => ({ address: f.address, amount: await getTreasuryBalance(f.address).catch(() => 0) }))),
+    ])
     await getTokens([
       ...offers.flatMap((o) => [o.sellResource, o.askResource]),
       ...balances.map((b) => b.address),
       ...CONFIG.knownResources.map((r) => r.address),
       CONFIG.hardResource,
       ...desk.feesCollected.map((f) => f.address),
+      ...desk.verified,
     ])
-    treasuryAll = await Promise.all(
-      desk.feesCollected.map(async (f) => ({ address: f.address, amount: await getTreasuryBalance(f.address).catch(() => 0) })),
-    )
     loaded = true
   } catch (e) {
     console.error(e)
@@ -149,6 +175,7 @@ async function refreshAll() {
 function render() {
   renderOnboarding()
   renderMe()
+  renderFilters()
   renderMarket()
   renderMine()
   renderLock()
@@ -181,57 +208,109 @@ function renderMe() {
   $('#me-fee').textContent = `${(feeRate(myLocked) * 100).toFixed(2)}%`
 }
 
+// ---------- Market ----------
+const openOffers = () => offers.filter((o) => o.status === 'Open' && o.expiresAt > Date.now())
+
+function renderFilters() {
+  const sel = $<HTMLSelectElement>('#f-token')
+  const prev = sel.value
+  const tokens = [...new Set(openOffers().map(baseOf))]
+  sel.innerHTML = '<option value="">All tokens</option>' + tokens.map((t) => `<option value="${esc(t)}">${esc(symV(t))}</option>`).join('')
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev
+}
+
+function filteredOffers() {
+  const type = (document.querySelector('input[name=ftype]:checked') as HTMLInputElement).value
+  const token = $<HTMLSelectElement>('#f-token').value
+  const sort = $<HTMLSelectElement>('#f-sort').value
+  const onlyVerified = $<HTMLInputElement>('#f-verified').checked
+  let list = openOffers().filter((o) =>
+    (type === 'all' || kindOf(o) === type) &&
+    (!token || baseOf(o) === token) &&
+    (!onlyVerified || (isVerified(o.sellResource) && isVerified(o.askResource))))
+  list.sort((a, b) => {
+    if (sort === 'exp') return a.expiresAt - b.expiresAt
+    if (sort === 'price') {
+      if (kindOf(a) !== kindOf(b)) return kindOf(a) === 'sell' ? -1 : 1
+      return kindOf(a) === 'sell' ? priceOf(a) - priceOf(b) : priceOf(b) - priceOf(a)
+    }
+    return Number(b.id) - Number(a.id)
+  })
+  // Promoted offers always on top
+  list = [...list.filter(isFeatured), ...list.filter((o) => !isFeatured(o))]
+  return list
+}
+
 function renderMarket() {
   if (!loaded) return
-  const open = offers.filter((o) => o.status === 'Open' && o.expiresAt > Date.now())
+  const list = filteredOffers()
   const myRate = feeRate(myLocked)
-  $('#market-body').innerHTML = open.length
-    ? open.map((o) => {
+  $('#market-body').innerHTML = list.length
+    ? list.map((o) => {
         const mine = riderIds.includes(o.seller)
         const reservedForOther = !!o.reservedBuyer && !riderIds.includes(o.reservedBuyer)
-        const get = mine ? Number(o.sellAmount) : Number(o.sellAmount) * (1 - myRate)
+        const sellRem = Number(o.sellRemaining)
+        const get = mine ? sellRem : sellRem * (1 - myRate)
+        const verb = kindOf(o) === 'buy' ? 'Sell' : 'Buy'
         let action: string
         if (mine) action = '<span class="pill">Your offer</span>'
         else if (reservedForOther) action = '<span class="pill">🔒 Reserved</span>'
-        else if (!account) action = '<button disabled title="Connect your wallet">Buy</button>'
-        else if (!myRider()) action = '<button disabled title="Mint your Rider Badge first">Buy</button>'
+        else if (!account) action = `<button disabled title="Connect your wallet">${verb}</button>`
+        else if (!myRider()) action = `<button disabled title="Mint your Rider Badge first">${verb}</button>`
         else if (desk.paused) action = '<button disabled title="Desk is paused">Paused</button>'
-        else action = `<button class="primary" data-accept="${o.id}">Buy</button>`
-        return `<tr>
-          <td class="n">#${o.id}${o.reservedBuyer && !reservedForOther && !mine ? '<br><small class="red">reserved for you</small>' : ''}</td>
-          <td>${tok(o.sellResource, get)}</td>
-          <td>${tok(o.askResource, Number(o.askAmount))}</td>
+        else action = `<button class="primary" data-accept="${o.id}">${verb}</button>`
+        const filled = filledPct(o)
+        return `<tr class="${isFeatured(o) ? 'featured' : ''}">
+          <td class="n">#${o.id} ${isFeatured(o) ? '<span class="star">★ FEATURED</span>' : ''}<br>
+            <span class="kind ${kindOf(o)}">${kindOf(o) === 'buy' ? 'BUY REQUEST' : 'SELL OFFER'}</span>
+            ${o.reservedBuyer && !reservedForOther && !mine ? '<br><small class="red">reserved for you</small>' : ''}
+            <small class="rep">${esc(repText(o.seller))}</small></td>
+          <td>${tok(o.sellResource, get)}
+            ${filled > 0 ? `<div class="fillbar" title="${filled}% filled"><i style="width:${filled}%"></i></div><small class="rep">${filled}% filled</small>` : ''}
+            ${o.allowPartial ? '<small class="rep">partial fills OK</small>' : ''}</td>
+          <td>${tok(o.askResource, Number(o.askRemaining))}</td>
+          <td class="n">${nf(priceOf(o), 6)} ${esc(sym(quoteOf(o)))}<br><small class="rep">per ${esc(sym(baseOf(o)))}</small></td>
           <td class="n">${timeLeft(o.expiresAt)}</td>
           <td>${action}</td>
         </tr>`
       }).join('')
-    : `<tr><td colspan="5" class="empty">No open offers yet.${myRider() ? ' Be the first: click “+ Create offer”.' : ''}</td></tr>`
+    : `<tr><td colspan="6" class="empty">${openOffers().length ? 'No offers match your filters.' : `No open offers yet.${myRider() ? ' Be the first: click “+ Create offer”.' : ''}`}</td></tr>`
   $<HTMLButtonElement>('#open-create').disabled = !myRider() || desk.paused
   $('#open-create').title = myRider() ? '' : 'Connect your wallet and mint a Rider Badge first'
 }
+document.querySelectorAll('input[name=ftype]').forEach((i) => i.addEventListener('change', renderMarket))
+;['#f-token', '#f-sort', '#f-verified'].forEach((s) => $(s).addEventListener('change', renderMarket))
 
+// ---------- My offers ----------
 function renderMine() {
   const mine = offers.filter((o) => riderIds.includes(o.seller)).sort((a, b) => Number(b.id) - Number(a.id))
   const myRate = feeRate(myLocked)
   $('#mine-body').innerHTML = mine.length
     ? mine.map((o) => {
         const expired = o.status === 'Open' && o.expiresAt <= Date.now()
+        const filled = filledPct(o)
         const status =
-          o.status === 'Filled' ? '<span class="pill ok">Sold</span>'
+          o.status === 'Filled' ? '<span class="pill ok">Completed</span>'
           : o.status === 'Cancelled' ? '<span class="pill">Cancelled</span>'
           : expired ? '<span class="pill bad">Expired</span>'
           : `<span class="pill live">Open · ${timeLeft(o.expiresAt)}</span>`
-        return `<tr>
-          <td class="n">#${o.id}</td>
+        const actions: string[] = []
+        if (o.status === 'Open' && !expired && desk.v3)
+          actions.push(`<button data-promote="${o.id}">${isFeatured(o) ? '★ Extend' : '★ Promote'}</button>`)
+        if (o.status === 'Open') actions.push(`<button data-cancel="${o.id}">${expired ? 'Reclaim tokens' : 'Cancel'}</button>`)
+        return `<tr class="${isFeatured(o) ? 'featured' : ''}">
+          <td class="n">#${o.id}<br><span class="kind ${kindOf(o)}">${kindOf(o) === 'buy' ? 'BUY REQUEST' : 'SELL OFFER'}</span></td>
           <td>${tok(o.sellResource, Number(o.sellAmount))}</td>
-          <td>${tok(o.askResource, Number(o.askAmount) * (1 - myRate))}</td>
-          <td>${status}</td>
-          <td>${o.status === 'Open' ? `<button data-cancel="${o.id}">${expired ? 'Reclaim tokens' : 'Cancel offer'}</button>` : ''}</td>
+          <td>${tok(o.askResource, Number(o.askAmount) * (1 - myRate))}
+            ${filled > 0 && filled < 100 ? `<div class="fillbar"><i style="width:${filled}%"></i></div><small class="rep">${filled}% filled</small>` : ''}</td>
+          <td>${status}${isFeatured(o) ? `<br><span class="star">★ until ${new Date(o.featuredUntil).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span>` : ''}</td>
+          <td><span class="actions">${actions.join('')}</span></td>
         </tr>`
       }).join('')
     : `<tr><td colspan="5" class="empty">${account ? 'You have no offers on this desk.' : 'Connect your wallet to see your offers.'}</td></tr>`
 }
 
+// ---------- Lock ----------
 function renderLock() {
   const tiers = [{ threshold: 0, multiplier: 1 }, ...desk.tiers]
   const names = ['Base', 'Bronze', 'Silver', 'Gold', 'Platinum']
@@ -264,13 +343,15 @@ function renderLock() {
   }
 }
 
+// ---------- Treasury ----------
 function renderTreasury() {
   const spent = Number(desk.treasuryWithdrawn.find((w) => w.address === CONFIG.hardResource)?.amount ?? 0)
-  $('#bb-listing').textContent = `${nf(desk.listingFeesHard, 2)} HARD`
+  $('#bb-listing').textContent = `${nf(desk.listingFeesHard + desk.promotionFeesHard, 2)} HARD`
   $('#bb-ready').textContent = `${nf(treasuryHard, 2)} HARD`
   $('#bb-spent').textContent = `${nf(spent, 2)} HARD`
   $('#burned').textContent = `${nf(burned)} HARD`
   $('#listing-fee').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'Free'
+  $('#promo-fee').textContent = desk.v3 ? (desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'Free') : '–'
   $('#trading-fee').textContent = `${(desk.feePerSide * 100).toFixed(2)}% / side`
   $('#burn-share').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}% of HARD fees` : 'Off'
   $('#fees-body').innerHTML = desk.feesCollected.length
@@ -289,12 +370,16 @@ function renderAdmin() {
     return
   }
   $('#adm-fee-now').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'
+  $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
   $('#adm-burn-now').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}%` : 'off'
   $('#adm-status').textContent = desk.paused ? 'PAUSED' : 'Live'
   $('#adm-status').className = desk.paused ? 'red' : ''
   $('#adm-pause-btn').textContent = desk.paused ? 'Resume desk' : 'Pause desk'
   document.querySelectorAll<HTMLButtonElement>('[data-unlock]').forEach((b) => b.classList.toggle('on', Number(b.dataset.unlock) === desk.unlockPeriod))
+  $('#adm-verified-body').innerHTML = desk.verified.length
+    ? desk.verified.map((v) => `<tr><td>${tok(v)}</td><td><button data-unverify="${esc(v)}">Remove</button></td></tr>`).join('')
+    : '<tr><td colspan="2" class="empty">No verified tokens.</td></tr>'
   $('#adm-treasury-body').innerHTML = treasuryAll.length
     ? treasuryAll.map((t) => `<tr><td>${tok(t.address)}</td><td class="num">${nf(t.amount)}</td>
         <td>${t.amount > 0 ? `<button data-withdraw="${esc(t.address)}">Withdraw all</button>` : '<span class="muted">empty</span>'}</td></tr>`).join('')
@@ -305,10 +390,24 @@ const adminSend = (title: string, lines: [string, string][], note: string, manif
   confirmAction(title, lines, note, () => send(manifest(), ok))
 
 $('#adm-fee-btn').addEventListener('click', () => {
-  const v = Number($<HTMLInputElement>('#adm-fee').value)
-  if (!(v >= 0 && v <= 100) || $<HTMLInputElement>('#adm-fee').value === '') return toast('Listing fee must be between 0 and 100 HARD.')
+  const raw = $<HTMLInputElement>('#adm-fee').value
+  const v = Number(raw)
+  if (raw === '' || !(v >= 0 && v <= 100)) return toast('Listing fee must be between 0 and 100 HARD.')
   adminSend('Change listing fee', [['Now', desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Applies to new offers only.',
     () => M.adminSetListingFee(account!, desk.adminBadge, String(v)), `Listing fee set to ${nf(v)} HARD`)
+})
+$('#adm-promo-btn').addEventListener('click', () => {
+  const raw = $<HTMLInputElement>('#adm-promo').value
+  const v = Number(raw)
+  if (raw === '' || !(v >= 0)) return toast('Enter the promotion fee in HARD.')
+  adminSend('Change promotion fee', [['Now', desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD per 24h` : 'free']], '',
+    () => M.adminSetPromotionFee(account!, desk.adminBadge, String(v)), `Promotion fee set to ${nf(v)} HARD`)
+})
+$('#adm-verify-btn').addEventListener('click', () => {
+  const addr = $<HTMLInputElement>('#adm-verify').value.trim()
+  if (!/^resource_/.test(addr)) return toast('Paste a token address starting with resource_.')
+  adminSend('Verify token', [['Token', esc(addr)]], 'This token will show ✓ everywhere on the site. Double-check the address.',
+    () => M.adminAddVerified(account!, desk.adminBadge, [addr]), 'Token verified')
 })
 document.querySelectorAll<HTMLButtonElement>('[data-unlock]').forEach((b) =>
   b.addEventListener('click', () => {
@@ -331,15 +430,6 @@ $('#adm-pause-btn').addEventListener('click', () => {
   adminSend(to ? 'Pause desk' : 'Resume desk', [['Status after', to ? 'PAUSED' : 'Live']],
     to ? 'New offers and purchases are blocked until you resume. Cancelling still works.' : 'Trading opens again for everyone.',
     () => M.adminSetPaused(account!, desk.adminBadge, to), to ? 'Desk paused' : 'Desk resumed')
-})
-document.addEventListener('click', (e) => {
-  const b = (e.target as HTMLElement).closest('[data-withdraw]') as HTMLElement | null
-  if (!b || !isAdmin()) return
-  const res = b.dataset.withdraw!
-  const amt = treasuryAll.find((t) => t.address === res)?.amount ?? 0
-  adminSend('Withdraw from treasury', [['You receive', `${nf(amt)} ${esc(sym(res))}`]],
-    'Use it for HARD buyback or to add liquidity. Withdrawn HARD shows as “spent on buyback & liquidity”.',
-    () => M.adminWithdrawTreasury(account!, desk.adminBadge, res), `${nf(amt)} ${sym(res)} withdrawn from treasury`)
 })
 
 // ---------- Tabs ----------
@@ -365,23 +455,51 @@ document.addEventListener('click', (e) => {
 
   if (el.dataset.accept && account && myRider()) {
     const o = offers.find((x) => x.id === el.dataset.accept)!
-    const fee = Number(o.sellAmount) * feeRate(myLocked)
+    if (o.allowPartial) return openBuy(o)
+    const pay = Number(o.askRemaining)
     const have = balanceOf(o.askResource)
-    const lines: [string, string][] = [
-      ['You pay', `${nf(Number(o.askAmount))} ${esc(sym(o.askResource))}`],
-      ['You receive', `${nf(Number(o.sellAmount) - fee)} ${esc(sym(o.sellResource))}`],
+    if (have < pay) return toast(`You need ${nf(pay)} ${sym(o.askResource)}, you have ${nf(have)}.`)
+    const fee = Number(o.sellRemaining) * feeRate(myLocked)
+    confirmAction(`${kindOf(o) === 'buy' ? 'Sell into request' : 'Buy offer'} #${o.id}`, [
+      ['You pay', `${nf(pay)} ${esc(symV(o.askResource))}`],
+      ['You receive', `${nf(Number(o.sellRemaining) - fee)} ${esc(symV(o.sellResource))}`],
       ['Your trading fee', `${nf(fee)} ${esc(sym(o.sellResource))} (${(feeRate(myLocked) * 100).toFixed(2)}%)`],
-    ]
-    if (have < Number(o.askAmount)) return toast(`You need ${nf(Number(o.askAmount))} ${sym(o.askResource)}, you have ${nf(have)}.`)
-    confirmAction(`Buy offer #${o.id}`, lines, 'Settles in one atomic transaction: you pay and receive at the same moment.',
-      () => send(M.acceptOffer(account!, myRider(), o.id, o.askResource, o.askAmount), `Offer #${o.id} bought`))
+      ['Counterparty', esc(repText(o.seller))],
+    ], unverifiedNote(o.sellResource, o.askResource) + 'Settles in one atomic transaction: you pay and receive at the same moment.',
+    () => send(M.acceptOffer(account!, myRider(), o.id, o.askResource, String(pay)), `Offer #${o.id} filled`))
   }
 
   if (el.dataset.cancel && account) {
     const o = offers.find((x) => x.id === el.dataset.cancel)!
-    confirmAction(`Cancel offer #${o.id}`, [['You get back', `${nf(Number(o.sellAmount))} ${esc(sym(o.sellResource))}`], ['Listing fee', 'not refunded']],
-      'The offer is removed from the market and the tokens return to your wallet.',
+    confirmAction(`Cancel offer #${o.id}`, [['You get back', `${nf(Number(o.sellRemaining))} ${esc(sym(o.sellResource))}`], ['Listing fee', 'not refunded']],
+      'The offer is removed from the market and the remaining tokens return to your wallet.',
       () => send(M.cancelOffer(account!, o.seller, o.id), `Offer #${o.id} cancelled, tokens returned`))
+  }
+
+  if (el.dataset.promote && account && myRider()) {
+    const o = offers.find((x) => x.id === el.dataset.promote)!
+    const fee = desk.promotionFee
+    if (balanceOf(CONFIG.hardResource) < fee) return toast(`Promotion costs ${nf(fee)} HARD, you have ${nf(balanceOf(CONFIG.hardResource))}.`)
+    const from = Math.max(Date.now(), o.featuredUntil)
+    confirmAction(`Promote offer #${o.id}`, [
+      ['Cost', fee ? `${nf(fee)} HARD` : 'free'],
+      ['★ Featured until', new Date(from + 86_400_000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })],
+    ], 'Your offer is pinned at the top of the market with a ★ badge. The fee goes to the treasury and is not refunded.',
+    () => send(M.promoteOffer(account!, myRider(), o.id, CONFIG.hardResource, String(fee)), `Offer #${o.id} promoted for 24h`))
+  }
+
+  if (el.dataset.unverify && isAdmin()) {
+    const r = el.dataset.unverify
+    adminSend('Remove verification', [['Token', esc(sym(r))]], 'The ✓ mark disappears from this token.',
+      () => M.adminRemoveVerified(account!, desk.adminBadge, r), 'Verification removed')
+  }
+
+  if (el.dataset.withdraw && isAdmin()) {
+    const res = el.dataset.withdraw
+    const amt = treasuryAll.find((t) => t.address === res)?.amount ?? 0
+    adminSend('Withdraw from treasury', [['You receive', `${nf(amt)} ${esc(sym(res))}`]],
+      'Use it for HARD buyback or to add liquidity. Withdrawn HARD shows as “spent on buyback & liquidity”.',
+      () => M.adminWithdrawTreasury(account!, desk.adminBadge, res), `${nf(amt)} ${sym(res)} withdrawn from treasury`)
   }
 
   if (el.id === 'withdraw-unlocked-btn' && account && myRider()) {
@@ -418,65 +536,141 @@ $('#request-unlock-btn').addEventListener('click', () => {
   () => send(M.requestUnlock(account!, myRider(), String(amount)), `Unlock of ${nf(amount)} HARD requested`))
 })
 
+// ---------- Buy (partial fills) ----------
+const buyDlg = $<HTMLDialogElement>('#buy-dialog')
+let buying: OfferView | null = null
+
+function openBuy(o: OfferView) {
+  buying = o
+  const max = Math.min(Number(o.askRemaining), balanceOf(o.askResource))
+  $('#buy-title').textContent = `${kindOf(o) === 'buy' ? 'Sell into request' : 'Buy from offer'} #${o.id}`
+  $('#buy-sub').innerHTML = `Available: <b>${nf(Number(o.sellRemaining))} ${esc(symV(o.sellResource))}</b> for <b>${nf(Number(o.askRemaining))} ${esc(symV(o.askResource))}</b> · ${esc(repText(o.seller))}`
+  $<HTMLInputElement>('#buy-amount').value = String(max > 0 ? +max.toFixed(6) : 0)
+  $<HTMLInputElement>('#buy-range').value = String(Math.round((max / Number(o.askRemaining)) * 100))
+  updateBuy()
+  buyDlg.showModal()
+}
+function updateBuy() {
+  const o = buying
+  if (!o) return
+  const pay = Number($<HTMLInputElement>('#buy-amount').value || 0)
+  const askRem = Number(o.askRemaining)
+  const gross = (Number(o.sellRemaining) * Math.min(pay, askRem)) / askRem
+  const fee = gross * feeRate(myLocked)
+  $('#buy-hint').textContent = `You have ${nf(balanceOf(o.askResource))} ${sym(o.askResource)} · ${Math.round((Math.min(pay, askRem) / askRem) * 100)}% of the offer`
+  const warn = unverifiedNote(o.sellResource, o.askResource)
+  $('#buy-summary').innerHTML = `
+    <div class="sline"><span>You pay</span><b>${nf(Math.min(pay, askRem))} ${esc(symV(o.askResource))}</b></div>
+    <div class="sline"><span>You receive</span><b>${nf(gross - fee)} ${esc(symV(o.sellResource))}</b></div>
+    <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${nf(fee)} ${esc(sym(o.sellResource))}</b></div>
+    ${warn ? `<p class="snote">${warn}</p>` : ''}`
+  let err = ''
+  if (!(pay > 0)) err = 'Enter how much you want to pay.'
+  else if (pay > balanceOf(o.askResource)) err = `You only have ${nf(balanceOf(o.askResource))} ${sym(o.askResource)}.`
+  $('#buy-error').textContent = err
+  $<HTMLButtonElement>('#buy-ok').disabled = !!err
+}
+$('#buy-amount').addEventListener('input', () => {
+  if (!buying) return
+  $<HTMLInputElement>('#buy-range').value = String(Math.round((Number($<HTMLInputElement>('#buy-amount').value || 0) / Number(buying.askRemaining)) * 100))
+  updateBuy()
+})
+$('#buy-range').addEventListener('input', () => {
+  if (!buying) return
+  const v = (Number($<HTMLInputElement>('#buy-range').value) / 100) * Number(buying.askRemaining)
+  $<HTMLInputElement>('#buy-amount').value = String(+v.toFixed(6))
+  updateBuy()
+})
+$('#buy-max').addEventListener('click', () => {
+  if (!buying) return
+  $<HTMLInputElement>('#buy-amount').value = String(+Math.min(Number(buying.askRemaining), balanceOf(buying.askResource)).toFixed(6))
+  $<HTMLInputElement>('#buy-range').value = '100'
+  updateBuy()
+})
+$('#buy-form').addEventListener('submit', (e) => {
+  e.preventDefault()
+  const o = buying
+  if (!o || !account || !myRider()) return
+  const pay = Math.min(Number($<HTMLInputElement>('#buy-amount').value || 0), Number(o.askRemaining))
+  if (!(pay > 0) || pay > balanceOf(o.askResource)) return
+  buyDlg.close()
+  send(M.acceptOffer(account, myRider(), o.id, o.askResource, String(pay)), `Filled ${nf(pay)} ${sym(o.askResource)} of offer #${o.id}`)
+})
+
 // ---------- Create offer ----------
 const createDlg = $<HTMLDialogElement>('#create-dialog')
 const form = $<HTMLFormElement>('#create-form')
+const mode = () => (document.querySelector('input[name=mode]:checked') as HTMLInputElement).value as 'sell' | 'buy'
+const walletTokens = () => balances.filter((b) => b.address !== desk.adminBadge && b.address !== CONFIG.riderBadgeResource).map((b) => b.address)
+const anyTokens = () => [...new Set([XRD, CONFIG.hardResource, ...desk.verified, ...walletTokens()])].filter(Boolean)
 
+function fillSelect(sel: HTMLSelectElement, list: string[], prefer: string, withCustom: boolean) {
+  const prev = sel.value
+  sel.innerHTML = (list.length ? list.map((a) => `<option value="${esc(a)}">${esc(symV(a))}</option>`).join('') : '<option value="">No tokens in wallet</option>') +
+    (withCustom ? '<option value="custom">Other token…</option>' : '')
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev
+  else if ([...sel.options].some((o) => o.value === prefer)) sel.value = prefer
+}
 function fillTokenSelects() {
-  const sellSel = $<HTMLSelectElement>('#sell')
-  const askSel = $<HTMLSelectElement>('#ask')
-  const prevSell = sellSel.value
-  const prevAsk = askSel.value
-  const sellable = balances.filter((b) => b.address !== desk.adminBadge && b.address !== CONFIG.riderBadgeResource)
-  sellSel.innerHTML = sellable.length
-    ? sellable.map((b) => `<option value="${esc(b.address)}">${esc(sym(b.address))}</option>`).join('')
-    : '<option value="">No tokens in wallet</option>'
-  const askList = [...new Set([...CONFIG.knownResources.map((r) => r.address), CONFIG.hardResource, ...sellable.map((b) => b.address)])].filter(Boolean)
-  askSel.innerHTML = askList.map((a) => `<option value="${esc(a)}">${esc(sym(a))}</option>`).join('') + '<option value="custom">Other token…</option>'
-  if ([...sellSel.options].some((o) => o.value === prevSell)) sellSel.value = prevSell
-  else if ([...sellSel.options].some((o) => o.value === CONFIG.hardResource)) sellSel.value = CONFIG.hardResource
-  if ([...askSel.options].some((o) => o.value === prevAsk)) askSel.value = prevAsk
+  const sell = mode() === 'sell'
+  // leg 1 = sell mode: what you sell (from wallet) | buy mode: what you want to buy (any token)
+  fillSelect($<HTMLSelectElement>('#token1'), sell ? walletTokens() : anyTokens(), CONFIG.hardResource, !sell)
+  // leg 2 = sell mode: what you want (any token) | buy mode: what you pay (from wallet)
+  fillSelect($<HTMLSelectElement>('#token2'), sell ? anyTokens() : walletTokens(), XRD, sell)
+  $('#leg1-title').textContent = sell ? 'You sell' : 'You want to buy'
+  $('#leg2-title').textContent = sell ? 'You want in total' : 'You pay in total (locked in escrow)'
 }
 
 function readForm() {
   const f = new FormData(form)
-  const ask = String(f.get('ask'))
+  const t = (n: 1 | 2) => (f.get(`token${n}`) === 'custom' ? String(f.get(`custom${n}`) || '').trim() : String(f.get(`token${n}`) || ''))
+  const a1 = Number(f.get('amount1') || 0)
+  const a2 = Number(f.get('amount2') || 0)
+  const sellMode = mode() === 'sell'
   return {
-    sell: String(f.get('sell') || ''),
-    sellAmount: Number(f.get('sellAmount') || 0),
-    ask: ask === 'custom' ? String(f.get('askCustom') || '').trim() : ask,
-    askAmount: Number(f.get('askAmount') || 0),
+    sell: sellMode ? t(1) : t(2),
+    sellAmount: sellMode ? a1 : a2,
+    ask: sellMode ? t(2) : t(1),
+    askAmount: sellMode ? a2 : a1,
     expiry: Number(f.get('expiry') || 72) as 1 | 6 | 72,
     reserved: String(f.get('reserved') || '').trim(),
+    partial: f.get('partial') === 'on',
   }
 }
 
 function validate(v: ReturnType<typeof readForm>): string {
   const hard = balanceOf(CONFIG.hardResource)
-  if (!v.sell) return 'Choose the token you sell.'
-  if (!(v.sellAmount > 0)) return 'Enter the amount you sell.'
+  if (!v.sell.startsWith('resource_')) return mode() === 'sell' ? 'Choose the token you sell.' : 'Choose the token you pay with.'
+  if (!v.ask.startsWith('resource_')) return mode() === 'sell' ? 'Choose the token you want.' : 'Choose the token you want to buy.'
+  if (v.ask === v.sell) return 'The two tokens must be different.'
+  if (!(v.sellAmount > 0) || !(v.askAmount > 0)) return 'Enter both amounts.'
   if (v.sellAmount > balanceOf(v.sell)) return `You only have ${nf(balanceOf(v.sell))} ${sym(v.sell)}.`
-  if (!v.ask || !v.ask.startsWith('resource_')) return 'Choose the token you want.'
-  if (v.ask === v.sell) return 'You must want a different token than the one you sell.'
-  if (!(v.askAmount > 0)) return 'Enter your price.'
   const needHard = desk.listingFee + (v.sell === CONFIG.hardResource ? v.sellAmount : 0)
-  if (desk.listingFee && hard < needHard) return `You need ${nf(needHard)} HARD (listing fee${v.sell === CONFIG.hardResource ? ' + amount sold' : ''}), you have ${nf(hard)}.`
+  if (desk.listingFee && hard < needHard) return `You need ${nf(needHard)} HARD (listing fee${v.sell === CONFIG.hardResource ? ' + amount locked' : ''}), you have ${nf(hard)}.`
   if (v.reserved && (!desk.tiers.length || myLocked < desk.tiers[0].threshold)) return `Reserved offers need at least ${nf(desk.tiers[0]?.threshold ?? 1000)} HARD locked.`
   return ''
 }
 
 function updateCreateSummary() {
   const v = readForm()
-  $('#ask-custom').hidden = $<HTMLSelectElement>('#ask').value !== 'custom'
-  $('#sell-hint').textContent = v.sell ? `Balance: ${nf(balanceOf(v.sell))} ${sym(v.sell)}` : ''
-  $('#ask-hint').textContent = v.sellAmount > 0 && v.askAmount > 0 && v.ask.startsWith('resource_')
-    ? `= ${nf(v.askAmount / v.sellAmount, 6)} ${sym(v.ask)} per ${sym(v.sell)}` : ''
+  $('#custom1').hidden = $<HTMLSelectElement>('#token1').value !== 'custom'
+  $('#custom2').hidden = $<HTMLSelectElement>('#token2').value !== 'custom'
+  const sellMode = mode() === 'sell'
+  const t1 = sellMode ? v.sell : v.ask
+  const t2 = sellMode ? v.ask : v.sell
+  const ok = (a: string) => a.startsWith('resource_')
+  $('#hint1').textContent = ok(t1) ? (sellMode ? `Balance: ${nf(balanceOf(t1))} ${sym(t1)}` : (isVerified(t1) ? '✓ Verified token' : '⚠ Unverified token: check the address')) : ''
+  const priceHint = v.sellAmount > 0 && v.askAmount > 0 && ok(v.sell) && ok(v.ask)
+    ? (sellMode ? `= ${nf(v.askAmount / v.sellAmount, 6)} ${sym(v.ask)} per ${sym(v.sell)}` : `= ${nf(v.sellAmount / v.askAmount, 6)} ${sym(v.sell)} per ${sym(v.ask)}`)
+    : ''
+  $('#hint2').textContent = [priceHint, !sellMode && ok(t2) ? `Balance: ${nf(balanceOf(t2))} ${sym(t2)}` : ''].filter(Boolean).join(' · ')
   const myFee = v.askAmount * feeRate(myLocked)
   $('#create-summary').innerHTML = `
-    <div class="sline"><span>Locked in escrow now</span><b>${v.sellAmount ? nf(v.sellAmount) : '–'} ${v.sell ? esc(sym(v.sell)) : ''}</b></div>
+    <div class="sline"><span>Locked in escrow now</span><b>${v.sellAmount ? nf(v.sellAmount) : '–'} ${ok(v.sell) ? esc(symV(v.sell)) : ''}</b></div>
     <div class="sline"><span>Listing fee (non-refundable)</span><b>${desk.listingFee ? nf(desk.listingFee) + ' HARD' : 'Free'}</b></div>
-    <div class="sline"><span>When sold, you receive</span><b>${v.askAmount ? nf(v.askAmount - myFee) : '–'} ${v.ask.startsWith('resource_') ? esc(sym(v.ask)) : ''}</b></div>
-    <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${v.askAmount ? nf(myFee) : '–'}</b></div>`
+    <div class="sline"><span>When completed, you receive</span><b>${v.askAmount ? nf(v.askAmount - myFee) : '–'} ${ok(v.ask) ? esc(symV(v.ask)) : ''}</b></div>
+    <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${v.askAmount ? nf(myFee) : '–'}</b></div>
+    <div class="sline sub"><span>Partial fills</span><b>${v.partial ? 'allowed' : 'all at once only'}</b></div>`
   const err = validate(v)
   $('#create-error').textContent = (v.sellAmount || v.askAmount) ? err : ''
   $<HTMLButtonElement>('#submit-offer').disabled = !!err
@@ -489,6 +683,16 @@ $('#open-create').addEventListener('click', () => {
   updateCreateSummary()
   createDlg.showModal()
 })
+document.querySelectorAll('input[name=mode]').forEach((i) =>
+  i.addEventListener('change', () => {
+    $<HTMLInputElement>('#amount1').value = ''
+    $<HTMLInputElement>('#amount2').value = ''
+    $<HTMLSelectElement>('#token1').innerHTML = ''
+    $<HTMLSelectElement>('#token2').innerHTML = ''
+    fillTokenSelects()
+    updateCreateSummary()
+  }),
+)
 form.addEventListener('input', updateCreateSummary)
 form.addEventListener('change', updateCreateSummary)
 form.addEventListener('submit', (e) => {
@@ -506,8 +710,10 @@ form.addEventListener('submit', (e) => {
       reservedBuyer: v.reserved || undefined,
       listingFee: desk.listingFee > 0 ? String(desk.listingFee) : undefined,
       v2: desk.v2,
+      v3: desk.v3,
+      allowPartial: v.partial,
     }),
-    'Offer created. Your tokens are in escrow.',
+    mode() === 'sell' ? 'Sell offer created. Your tokens are in escrow.' : 'Buy request created. Your payment is in escrow.',
   )
 })
 

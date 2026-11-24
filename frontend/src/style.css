@@ -224,3 +224,27 @@ nav .admin-tab { margin-left: auto; color: var(--red); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chips button { font-size: 15px; min-height: 40px; }
 .chips button.on { border-color: var(--red); color: var(--red); }
+
+/* ---------- v3: filters, featured, partial ---------- */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0 6px; }
+.filters select { min-height: 40px; padding: 6px 10px; font-size: 15px; }
+.seg-sm label { padding: 8px 12px; font-size: 14px; }
+.check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; text-transform: none; letter-spacing: 0; font-family: Barlow, sans-serif; margin: 10px 0; }
+.check input { min-height: 0; width: 18px; height: 18px; accent-color: var(--red); }
+dialog .check { flex-direction: row; }
+tr.featured { background: linear-gradient(90deg, rgba(227, 36, 43, 0.14), transparent 60%); }
+tr.featured td:first-child { box-shadow: inset 3px 0 0 var(--red); }
+.kind { display: inline-block; font-family: var(--cond); font-weight: 800; letter-spacing: 1px; font-size: 12px; padding: 2px 6px; margin-top: 4px; }
+.kind.sell { background: #2a2a2a; color: var(--text); }
+.kind.buy { background: var(--red-dark); color: var(--red); border: 1px solid #5a1b1e; }
+.star { color: #ffcc33; font-family: var(--cond); font-weight: 800; letter-spacing: 1px; font-size: 12px; }
+.rep { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.ver { color: var(--ok); font-weight: 700; margin-left: 4px; }
+.unver { color: #ffb020; font-size: 11px; margin-left: 4px; font-family: var(--cond); letter-spacing: 1px; }
+.fillbar { height: 4px; background: var(--line); margin-top: 6px; width: 120px; }
+.fillbar i { display: block; height: 100%; background: var(--ok); }
+.custom { width: 100%; margin-top: 8px; }
+#buy-range { width: 100%; margin-top: 10px; accent-color: var(--red); min-height: 0; padding: 0; border: 0; background: none; }
+.actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.actions button { font-size: 15px; min-height: 38px; padding: 6px 12px; }
+.warnline { color: #ffb020; }

@@ -25,6 +25,8 @@ export function createOffer(p: {
   reservedBuyer?: string
   listingFee?: string
   v2?: boolean
+  v3?: boolean
+  allowPartial?: boolean
 }) {
   const reserved = p.reservedBuyer
     ? `Enum<1u8>(NonFungibleLocalId("${p.reservedBuyer}"))`
@@ -42,11 +44,12 @@ CALL_METHOD Address("${desk()}") "create_offer"
   Decimal("${p.askAmount}")
   ${p.expiryHours}u8
   ${reserved}
-  Address("${p.account}")${p.v2 ? '\n  Bucket("listing")' : ''};${depositAll(p.account)}`
+  Address("${p.account}")${p.v2 ? '\n  Bucket("listing")' : ''}${p.v3 ? `\n  ${p.allowPartial ? 'true' : 'false'}` : ''};${depositAll(p.account)}`
 }
 
-export const acceptOffer = (account: string, riderId: string, offerId: string, askResource: string, askAmount: string) => `
-CALL_METHOD Address("${account}") "withdraw" Address("${askResource}") Decimal("${askAmount}");
+/** `payAmount` = ile płacisz (całość albo część przy częściowym kupnie). */
+export const acceptOffer = (account: string, riderId: string, offerId: string, askResource: string, payAmount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${askResource}") Decimal("${payAmount}");
 TAKE_ALL_FROM_WORKTOP Address("${askResource}") Bucket("pay");${riderProof(account, riderId)}
 CALL_METHOD Address("${desk()}") "accept_offer" ${offerId}u64 Proof("rider") Bucket("pay");${depositAll(account)}`
 
@@ -85,3 +88,17 @@ CALL_METHOD Address("${desk()}") "set_paused" ${paused};`
 
 export const adminWithdrawTreasury = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_treasury" Address("${resource}");${depositAll(account)}`
+
+export const promoteOffer = (account: string, riderId: string, offerId: string, hardResource: string, fee: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${hardResource}") Decimal("${fee}");
+TAKE_FROM_WORKTOP Address("${hardResource}") Decimal("${fee}") Bucket("fee");${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "promote_offer" ${offerId}u64 Proof("rider") Bucket("fee");${depositAll(account)}`
+
+export const adminSetPromotionFee = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_promotion_fee" Decimal("${amount}");`
+
+export const adminAddVerified = (account: string, adminBadge: string, resources: string[]) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "add_verified" Array<Address>(${resources.map((r) => `Address("${r}")`).join(', ')});`
+
+export const adminRemoveVerified = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "remove_verified" Address("${resource}");`

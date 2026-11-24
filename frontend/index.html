@@ -73,19 +73,33 @@
           <button id="refresh" class="ghost">↻ Refresh</button>
           <button id="open-create" class="primary">+ Create offer</button>
         </div>
-        <p class="muted">Prices are what you pay in total. "You get" already includes your trading fee.</p>
+        <div class="filters">
+          <div class="seg seg-sm" role="radiogroup" aria-label="Offer type">
+            <label><input type="radio" name="ftype" value="all" checked /> All</label>
+            <label><input type="radio" name="ftype" value="sell" /> Sell offers</label>
+            <label><input type="radio" name="ftype" value="buy" /> Buy requests</label>
+          </div>
+          <select id="f-token" aria-label="Token"><option value="">All tokens</option></select>
+          <select id="f-sort" aria-label="Sort">
+            <option value="new">Newest</option>
+            <option value="exp">Expiring soon</option>
+            <option value="price">Best price</option>
+          </select>
+          <label class="check"><input type="checkbox" id="f-verified" /> Verified tokens only</label>
+        </div>
+        <p class="muted">“You get” already includes your trading fee. ✓ = token verified by HARD ADV. Always check unverified token addresses.</p>
         <table class="stack">
-          <thead><tr><th>#</th><th>You get</th><th>You pay</th><th>Expires</th><th></th></tr></thead>
-          <tbody id="market-body"><tr><td colspan="5" class="muted">Loading offers…</td></tr></tbody>
+          <thead><tr><th>Offer</th><th>You get</th><th>You pay</th><th>Price</th><th>Expires</th><th></th></tr></thead>
+          <tbody id="market-body"><tr><td colspan="6" class="empty">Loading offers…</td></tr></tbody>
         </table>
       </section>
 
       <!-- MY OFFERS -->
       <section id="tab-mine" hidden>
         <h2>My offers</h2>
-        <p class="muted">Cancel an open offer at any time to get your tokens back. Expired offers must be reclaimed the same way. The listing fee is not refunded.</p>
+        <p class="muted">Cancel an open offer at any time to get the remaining tokens back (expired offers too). Promote an offer to pin it with ★ at the top of the market for 24 hours. Listing and promotion fees are not refunded.</p>
         <table class="stack">
-          <thead><tr><th>#</th><th>You sell</th><th>You receive</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>You give</th><th>You receive</th><th>Status</th><th></th></tr></thead>
           <tbody id="mine-body"></tbody>
         </table>
       </section>
@@ -123,7 +137,7 @@
         <h2>Desk treasury</h2>
         <p class="muted">Listing fees (paid in HARD) and trading fees go to the desk treasury. Treasury funds are used to buy back HARD and add liquidity to the HARD pool.</p>
         <div class="buyback">
-          <div class="bb-main"><span>HARD earned from listings</span><b id="bb-listing">–</b></div>
+          <div class="bb-main"><span>HARD earned from listings &amp; promotions</span><b id="bb-listing">–</b></div>
           <div class="bb-flow">
             <div><span>Ready for buyback now</span><b id="bb-ready">–</b></div>
             <div><span>Already spent on buyback &amp; liquidity</span><b id="bb-spent">–</b></div>
@@ -131,6 +145,7 @@
         </div>
         <div class="stats">
           <div class="stat"><span>Listing fee</span><b id="listing-fee">–</b></div>
+          <div class="stat"><span>Promotion (24h)</span><b id="promo-fee">–</b></div>
           <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
           <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
           <div class="stat"><span>HARD burned forever</span><b id="burned">–</b></div>
@@ -151,6 +166,11 @@
           <li><b>Buyer accepts.</b> In one atomic transaction the buyer pays, receives the tokens, and the seller receives the payment directly to their account. If anything fails, nothing moves.</li>
           <li><b>Fees.</b> Each side pays a trading fee (0.75% before discounts): the seller from the price, the buyer from the tokens received. Locked HARD lowers your side's fee.</li>
           <li><b>Cancel any time.</b> The seller can cancel an open or expired offer and gets the tokens back. The listing fee is not refunded.</li>
+          <li><b>Sell offers and buy requests.</b> A sell offer locks the token being sold; a buy request locks the payment (e.g. XRD) and waits for someone who has the token. Both settle the same way.</li>
+          <li><b>Partial fills.</b> If the creator allows it, you can take only part of an offer. The rest stays on the market.</li>
+          <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
+          <li><b>Promotion.</b> Sellers can pay HARD to pin their offer with ★ at the top for 24 hours. Fees go to the treasury.</li>
+          <li><b>Reputation.</b> Each Rider Badge counts completed sales and purchases, shown next to every offer.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can reserve an offer for a specific Rider Badge. Everyone can see it; only that rider can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
@@ -192,12 +212,32 @@
           </div>
 
           <div class="box">
+            <h3>Promotion fee</h3>
+            <p class="muted">HARD paid to pin an offer with ★ for 24 hours. Current: <b id="adm-promo-now">–</b></p>
+            <div class="inline">
+              <input id="adm-promo" type="number" min="0" step="any" placeholder="HARD" />
+              <button id="adm-promo-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
             <h3>Desk status</h3>
             <p class="muted">Pausing blocks new offers and purchases. Users can still cancel offers and reclaim tokens.</p>
             <p>Status: <b id="adm-status">–</b></p>
             <button id="adm-pause-btn">Pause desk</button>
           </div>
         </div>
+
+        <h3>Verified tokens</h3>
+        <p class="muted">Tokens marked ✓ on the site. Add only tokens whose address you have checked (official HARD, XRD, known LSUs and LP tokens).</p>
+        <div class="inline" style="margin:10px 0">
+          <input id="adm-verify" placeholder="Token address (resource_…)" />
+          <button id="adm-verify-btn" class="primary">Add ✓</button>
+        </div>
+        <table>
+          <thead><tr><th>Token</th><th></th></tr></thead>
+          <tbody id="adm-verified-body"></tbody>
+        </table>
 
         <h3>Treasury: withdraw for buyback &amp; liquidity</h3>
         <p class="muted">Sends the full treasury balance of a token to your wallet. Withdrawn HARD is counted as “spent on buyback &amp; liquidity” on the Treasury tab.</p>
@@ -216,24 +256,29 @@
     <dialog id="create-dialog">
       <form id="create-form" novalidate>
         <div class="dlg-head"><h2>Create offer</h2><button type="button" class="x" data-close>✕</button></div>
-
-        <div class="leg">
-          <div class="leg-title">You sell</div>
-          <div class="inline">
-            <input name="sellAmount" id="sell-amount" type="number" min="0" step="any" placeholder="Amount" required />
-            <select name="sell" id="sell" required></select>
-          </div>
-          <small class="hint" id="sell-hint"></small>
+        <div class="seg" role="radiogroup" aria-label="I want to">
+          <label><input type="radio" name="mode" value="sell" checked /> I want to sell</label>
+          <label><input type="radio" name="mode" value="buy" /> I want to buy</label>
         </div>
 
         <div class="leg">
-          <div class="leg-title">You want in total</div>
+          <div class="leg-title" id="leg1-title">You sell</div>
           <div class="inline">
-            <input name="askAmount" id="ask-amount" type="number" min="0" step="any" placeholder="Price" required />
-            <select name="ask" id="ask" required></select>
+            <input name="amount1" id="amount1" type="number" min="0" step="any" placeholder="Amount" required />
+            <select name="token1" id="token1" required></select>
           </div>
-          <input name="askCustom" id="ask-custom" placeholder="Token address (resource_tdx_2_…)" hidden />
-          <small class="hint" id="ask-hint"></small>
+          <input name="custom1" id="custom1" class="custom" placeholder="Token address (resource_…)" hidden />
+          <small class="hint" id="hint1"></small>
+        </div>
+
+        <div class="leg">
+          <div class="leg-title" id="leg2-title">You want in total</div>
+          <div class="inline">
+            <input name="amount2" id="amount2" type="number" min="0" step="any" placeholder="Amount" required />
+            <select name="token2" id="token2" required></select>
+          </div>
+          <input name="custom2" id="custom2" class="custom" placeholder="Token address (resource_…)" hidden />
+          <small class="hint" id="hint2"></small>
         </div>
 
         <div class="leg">
@@ -244,6 +289,8 @@
             <label><input type="radio" name="expiry" value="72" checked /> 3 days</label>
           </div>
         </div>
+
+        <label class="check"><input type="checkbox" name="partial" id="partial" checked /> Allow partial fills <small class="muted">(buyers can take part of your offer)</small></label>
 
         <details class="adv">
           <summary>Reserve for a specific buyer (optional)</summary>
@@ -257,6 +304,29 @@
         <div class="dlg-actions">
           <button type="button" data-close>Cancel</button>
           <button type="submit" class="primary" id="submit-offer">Review &amp; sign in wallet</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- BUY (partial) -->
+    <dialog id="buy-dialog">
+      <form id="buy-form" novalidate>
+        <div class="dlg-head"><h2 id="buy-title">Buy</h2><button type="button" class="x" data-close>✕</button></div>
+        <p class="muted" id="buy-sub"></p>
+        <div class="leg">
+          <div class="leg-title">How much do you want to pay?</div>
+          <div class="inline">
+            <input id="buy-amount" type="number" min="0" step="any" />
+            <button type="button" id="buy-max">Max</button>
+          </div>
+          <input id="buy-range" type="range" min="1" max="100" value="100" aria-label="Share of the offer" />
+          <small class="hint" id="buy-hint"></small>
+        </div>
+        <div class="summary" id="buy-summary"></div>
+        <p class="err" id="buy-error"></p>
+        <div class="dlg-actions">
+          <button type="button" data-close>Cancel</button>
+          <button type="submit" class="primary" id="buy-ok">Review &amp; sign in wallet</button>
         </div>
       </form>
     </dialog>

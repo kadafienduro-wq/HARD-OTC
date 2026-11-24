@@ -10,6 +10,8 @@ async function post<T = any>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
+const toMs = (v: any) => (v == null ? 0 : Number(typeof v === 'object' ? v.seconds_since_unix_epoch : v) * 1000)
+
 /** Zamienia programmatic JSON (SBOR) na zwykły obiekt JS. */
 export function decode(v: any): any {
   if (v == null) return v
@@ -38,6 +40,10 @@ export type OfferView = {
   sellAmount: string
   askResource: string
   askAmount: string
+  sellRemaining: string
+  askRemaining: string
+  allowPartial: boolean
+  featuredUntil: number
   expiresAt: number
   reservedBuyer: string | null
   status: 'Open' | 'Filled' | 'Cancelled'
@@ -73,8 +79,13 @@ export type DeskInfo = {
   treasuryKvs: string
   adminBadge: string
   paused: boolean
+  verified: string[]
+  promotionFee: number
+  promotionFeesHard: number
+  riderStatsKvs: string
+  v3: boolean
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, riderStatsKvs: '', v3: false }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -98,6 +109,11 @@ export async function loadDeskInfo() {
     treasuryKvs: state.treasury ?? state.fees ?? '',
     adminBadge: state.admin_badge ?? '',
     paused: state.paused === true,
+    verified: state.verified ?? [],
+    promotionFee: Number(state.promotion_fee_hard ?? 0),
+    promotionFeesHard: Number(state.promotion_fees_hard ?? 0),
+    riderStatsKvs: state.rider_stats ?? '',
+    v3: state.promotion_fee_hard !== undefined,
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -147,6 +163,26 @@ export async function getTreasuryBalance(resource: string): Promise<number> {
   return vault ? getVaultAmount(vault) : 0
 }
 
+export type RiderStats = { sells: number; buys: number; offers: number }
+
+/** Reputacja riderów (liczba transakcji). */
+export async function getRiderStats(ids: string[]): Promise<Map<string, RiderStats>> {
+  const out = new Map<string, RiderStats>()
+  const uniq = [...new Set(ids)].filter(Boolean)
+  if (!desk.riderStatsKvs || !uniq.length) return out
+  for (let i = 0; i < uniq.length; i += 50) {
+    const data = await post('/state/key-value-store/data', {
+      key_value_store_address: desk.riderStatsKvs,
+      keys: uniq.slice(i, i + 50).map((id) => ({ key_json: { kind: 'NonFungibleLocalId', value: id } })),
+    })
+    for (const e of data.entries ?? []) {
+      const s = decode(e.value.programmatic_json)
+      out.set(e.key.programmatic_json.value, { sells: Number(s.sells), buys: Number(s.buys), offers: Number(s.offers_created) })
+    }
+  }
+  return out
+}
+
 /** Mnożnik opłaty dla danej ilości zablokowanych HARD. */
 export function multiplierFor(locked: number) {
   let m = 1
@@ -182,6 +218,10 @@ export async function getOffers(): Promise<OfferView[]> {
         sellAmount: o.sell_amount,
         askResource: o.ask_resource,
         askAmount: o.ask_amount,
+        sellRemaining: o.sell_remaining ?? o.sell_amount,
+        askRemaining: o.ask_remaining ?? o.ask_amount,
+        allowPartial: o.allow_partial === true,
+        featuredUntil: toMs(o.featured_until),
         expiresAt: Number(typeof o.expires_at === 'object' ? o.expires_at.seconds_since_unix_epoch : o.expires_at) * 1000,
         reservedBuyer: reserved.variant === 'Some' || reserved.variant === '1' ? reserved.fields[0] : null,
         status: o.status.variant,
