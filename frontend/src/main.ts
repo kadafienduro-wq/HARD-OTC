@@ -630,7 +630,7 @@ function renderAdmin() {
   }
   $('#adm-fee-now').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'
   $('#adm-trade-now').textContent = `${nf(desk.feePerSide * 100, 3)}% per side`
-  $('#adm-trade-box').hidden = desk.version < 5
+  $('#adm-trade-box').hidden = desk.version < 6
   $('#adm-res-now').textContent = desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'
   $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
