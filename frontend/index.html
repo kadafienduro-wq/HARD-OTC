@@ -12,8 +12,11 @@
   <body>
     <header>
       <div class="brand">
-        <div class="word">HARD <i>ADV</i></div>
-        <div class="sub">OTC DESK</div>
+        <img class="brand-coin" src="hard-token.png" alt="" />
+        <div>
+          <div class="word">HARD <i>ADV</i></div>
+          <div class="sub">OTC DESK</div>
+        </div>
       </div>
       <span class="badge" id="net-badge">STOKENET · TESTNET</span>
       <radix-connect-button></radix-connect-button>
@@ -25,10 +28,19 @@
     </div>
 
     <section class="hero">
-      <div class="kicker"><span class="dash"></span>HARD ADV <span class="sep">/</span> BUILT ON RADIX</div>
-      <h1>TRADE BIG.<br />SETTLE <em>HARD.</em></h1>
-      <p class="lead">Peer-to-peer OTC trading with on-chain escrow. The seller's tokens are locked in the smart contract, and the buyer pays and receives in one atomic transaction: either both sides settle, or nothing happens.</p>
-      <p class="warn">Testnet only · test assets have no monetary value · experimental escrow</p>
+      <div class="hero-text">
+        <div class="kicker"><span class="dash"></span>HARD ADV <span class="sep">/</span> BUILT ON RADIX</div>
+        <h1>TRADE BIG.<br />SETTLE <em>HARD.</em></h1>
+        <p class="lead">Peer-to-peer OTC trading with on-chain escrow. The seller's tokens are locked in the smart contract, and the buyer pays and receives in one atomic transaction: either both sides settle, or nothing happens.</p>
+        <p class="warn">Testnet only · test assets have no monetary value</p>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="coin-wrap">
+          <span class="coin-tag">ESCROW ON RADIX <i></i></span>
+          <img class="coin" src="hard-token.png" alt="" />
+          <div class="coin-card"><span>NETWORK</span><b>STOKENET</b></div>
+        </div>
+      </div>
     </section>
 
     <!-- Getting started -->
@@ -60,7 +72,7 @@
       <button data-tab="market" class="active">Market</button>
       <button data-tab="mine">My offers</button>
       <button data-tab="lock">Lock HARD</button>
-      <button data-tab="staked">Staked XRD</button>
+      <button data-tab="staked">We buy staked XRD</button>
       <button data-tab="treasury">Treasury</button>
       <button data-tab="how">How it works</button>
       <button data-tab="admin" id="admin-tab" class="admin-tab" hidden>Admin</button>
@@ -135,8 +147,8 @@
 
       <!-- STAKED XRD QUICK BUY -->
       <section id="tab-staked" hidden>
-        <div class="row"><h2>Quick buy: staked XRD for HARD</h2><span class="pill" id="lsu-status">–</span></div>
-        <p class="muted">Need liquidity now instead of waiting for unstaking? Sell your staked XRD (LSU) to HARD ADV and get HARD. You receive <b id="lsu-payout-text">–</b> of your LSU's current XRD value, paid in HARD at the live Ociswap price at the moment the sale is completed. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
+        <div class="row"><h2>We buy your staked XRD</h2><span class="pill" id="lsu-status">–</span></div>
+        <p class="muted">HARD ADV buys staked XRD (LSU). No need to wait about a week for unstaking: sell your LSU to us and get HARD right away. You receive <b id="lsu-payout-text">–</b> of your LSU's current XRD value, paid in HARD at the live Ociswap price at the moment the sale is completed. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
         <div class="stats">
           <div class="stat"><span>You receive</span><b id="lsu-payout">–</b></div>
           <div class="stat"><span>HARD price now (Ociswap)</span><b id="lsu-price">–</b></div>
@@ -145,7 +157,7 @@
         </div>
 
         <div class="box">
-          <h3>Sell staked XRD</h3>
+          <h3>Sell us your staked XRD</h3>
           <div class="inline">
             <input id="lsu-amount" type="number" min="0" step="any" placeholder="Amount of LSU" />
             <select id="lsu-token"></select>
@@ -236,7 +248,7 @@
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
           <li><b>Featuring (★).</b> After posting, sellers can pay HARD per 24 hours to pin their offer at the top of the market. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
-          <li><b>Quick buy of staked XRD.</b> Sell your LSU to HARD ADV for HARD at a discount to its current value (shown on the Staked XRD tab). Requests are reviewed manually; you can cancel until then.</li>
+          <li><b>We buy staked XRD.</b> Sell your LSU to HARD ADV for HARD at a discount to its current value (shown on the “We buy staked XRD” tab). Requests are reviewed manually; you can cancel until then.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
@@ -294,7 +306,7 @@
           </div>
         </div>
 
-        <h3>Quick buy: staked XRD</h3>
+        <h3>We buy staked XRD (admin)</h3>
         <div class="admin-grid">
           <div class="box">
             <h3>Settings</h3>

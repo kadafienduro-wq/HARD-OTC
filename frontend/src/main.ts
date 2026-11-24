@@ -43,6 +43,7 @@ const isVerified = (addr: string) => desk.verified.includes(addr)
 const symV = (addr: string) => `${sym(addr)}${isVerified(addr) ? ' ✓' : ''}`
 
 function icon(addr: string) {
+  if (addr === CONFIG.hardResource) return '<img class="ico" src="hard-token.png" alt="">'
   const t = tokenInfo(addr)
   const letter = esc(t.symbol.slice(0, 1).toUpperCase())
   return t.icon
@@ -280,7 +281,7 @@ function renderMarket() {
         else if (!account) action = `<button disabled title="Connect your wallet">${verb}</button>`
         else if (!myRider()) action = `<button disabled title="Mint your HARD OTC Badge first">${verb}</button>`
         else if (desk.paused) action = '<button disabled title="Desk is paused">Paused</button>'
-        else action = `<button class="primary" data-accept="${o.id}">${verb}</button>`
+        else action = `<button class="act" data-accept="${o.id}">${verb}</button>`
         const filled = filledPct(o)
         return `<tr class="${isFeatured(o) ? 'featured' : ''}">
           <td class="n">#${o.id} ${isFeatured(o) ? '<span class="star">★ FEATURED</span>' : ''}<br>
