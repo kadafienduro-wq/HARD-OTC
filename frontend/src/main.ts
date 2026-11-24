@@ -168,6 +168,7 @@ const unverifiedNote = (...addrs: string[]) =>
 
 // ---------- Data ----------
 async function refreshAll() {
+  lsuRate.clear()
   try {
     await loadDeskInfo().catch(() => {})
     riderIds = account ? await getRiderBadges(account).catch(() => []) : []
@@ -420,6 +421,7 @@ function renderStaked() {
   const lsus = myLsus()
   sel.innerHTML = lsus.length ? lsus.map((a) => `<option value="${esc(a)}">${esc(sym(a))} (${nf(balanceOf(a))})</option>`).join('') : '<option value="">No staked XRD in wallet</option>'
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev
+  if (sel.value && !lsuRate.has(sel.value)) updateLsuQuote()
   $<HTMLButtonElement>('#lsu-sell-btn').disabled = false
   $('#lsu-why').textContent = !account ? 'Connect your Radix Wallet to sell.'
     : !myRider() ? 'Get your HARD OTC Badge first (button at the top of the page).'
@@ -436,19 +438,40 @@ function renderStaked() {
     : `<tr><td colspan="5" class="empty">${account ? 'No requests yet.' : 'Connect your wallet to see your requests.'}</td></tr>`
 }
 
+// Sprzedający wpisuje wartość w XRD; strona przelicza to na ilość LSU po kursie walidatora.
+const lsuRate = new Map<string, number>() // XRD za 1 LSU
+async function rateOf(lsu: string) {
+  if (!lsuRate.has(lsu)) lsuRate.set(lsu, await getLsuXrdValue(lsu, 1).catch(() => 0))
+  return lsuRate.get(lsu) ?? 0
+}
+const decStr = (n: number) => n.toFixed(12).replace(/\.?0+$/, '')
+let lsuSellAmount = 0
+
 async function updateLsuQuote() {
   const lsu = $<HTMLSelectElement>('#lsu-token').value
-  const amount = Number($<HTMLInputElement>('#lsu-amount').value || 0)
-  if (!lsu || !(amount > 0)) {
+  const want = Number($<HTMLInputElement>('#lsu-amount').value || 0)
+  lsuSellAmount = 0
+  if (!lsu) { $('#lsu-quote').innerHTML = ''; $('#lsu-hint').textContent = ''; return }
+  const rate = await rateOf(lsu)
+  const bal = balanceOf(lsu)
+  const balXrd = bal * rate
+  const have = rate ? `You have ≈ ${nf(balXrd)} XRD staked here (${nf(bal)} ${sym(lsu)}, 1 ${sym(lsu)} = ${nf(rate, 6)} XRD).` : 'Could not read this validator right now.'
+  if (!(want > 0) || !rate) {
     $('#lsu-quote').innerHTML = ''
-    $('#lsu-hint').textContent = lsu ? `Balance: ${nf(balanceOf(lsu))} ${sym(lsu)}` : ''
+    $('#lsu-hint').textContent = have
     return
   }
-  const xrd = await getLsuXrdValue(lsu, amount).catch(() => 0)
+  if (want > balXrd * 1.000001) {
+    $('#lsu-quote').innerHTML = ''
+    $('#lsu-hint').textContent = `You only have ≈ ${nf(balXrd)} XRD staked with this validator.`
+    return
+  }
+  lsuSellAmount = want >= balXrd * 0.999999 ? bal : Math.floor((want / rate) * 1e12) / 1e12
+  const xrd = lsuSellAmount * rate
   lsuQuote = { xrd, pay: payoutFor(xrd) }
-  $('#lsu-hint').textContent = amount > balanceOf(lsu) ? `You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.` : `Balance: ${nf(balanceOf(lsu))} ${sym(lsu)}`
+  $('#lsu-hint').textContent = `${have} This sends ${nf(lsuSellAmount, 6)} ${sym(lsu)}.`
   $('#lsu-quote').innerHTML = `
-    <div class="sline"><span>Current value of your staked XRD</span><b>${xrd ? nf(xrd) + ' XRD' : 'unavailable'}</b></div>
+    <div class="sline"><span>Staked XRD you sell</span><b>${nf(xrd)} XRD</b></div>
     <div class="sline"><span>You get in total (${Math.round(desk.lsuPayout * 100)}% of value)</span><b>≈ ${nf(lsuQuote.pay.total)} XRD worth</b></div>
     <div class="sline sub"><span>In XRD (${Math.round(desk.lsuXrdShare * 100)}%)</span><b>${nf(lsuQuote.pay.xrd)} XRD</b></div>
     <div class="sline sub"><span>In HARD (${Math.round((1 - desk.lsuXrdShare) * 100)}%, at ${nf(priceNow(), 6)} XRD per HARD)</span><b>≈ ${nf(lsuQuote.pay.hard)} HARD</b></div>
@@ -462,10 +485,10 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   if (!desk.lsuEnabled || desk.paused) return toast('Staked XRD buying is closed right now. The admin must open it in the Admin tab.')
   if (!myLsus().length) return toast('No staked XRD (LSU) found in your connected account.')
   const lsu = $<HTMLSelectElement>('#lsu-token').value
-  const amount = Number($<HTMLInputElement>('#lsu-amount').value || 0)
-  if (!lsu || !(amount > 0)) return toast('Choose your staked XRD and enter an amount.')
-  if (amount > balanceOf(lsu)) return toast(`You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.`)
+  if (!lsu || !(Number($<HTMLInputElement>('#lsu-amount').value || 0) > 0)) return toast('Choose your staked XRD and enter how much XRD you want to sell.')
   await updateLsuQuote()
+  const amount = lsuSellAmount
+  if (!(amount > 0)) return toast($('#lsu-hint').textContent || 'Enter a valid amount.')
   const q = lsuQuote.pay
   if (!q.total || (desk.lsuXrdShare < 1 && !q.hard)) return toast('Could not price this LSU right now. Try again shortly.')
   if (q.total > desk.lsuMaxValuePerTx) return toast(`Max per request is ${nf(desk.lsuMaxValuePerTx)} XRD worth. Sell a smaller amount.`)
@@ -474,12 +497,12 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   const minX = q.xrd * 0.99
   const minH = q.hard * 0.99
   confirmAction('Request staked XRD sale', [
-    ['You send to escrow', `${nf(amount)} ${esc(sym(lsu))}`],
-    ['Value now', `${nf(lsuQuote.xrd)} XRD`],
+    ['Staked XRD you sell', `${nf(lsuQuote.xrd)} XRD`],
+    ['Sent to escrow', `${nf(amount, 6)} ${esc(sym(lsu))}`],
     ['You get (estimate)', `≈ ${payText(q)}`],
     ['Minimum you accept', payText({ xrd: minX, hard: minH })],
   ], 'HARD ADV reviews the request manually. If accepted, XRD and HARD go straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
-  () => send(M.requestLsuSale(account!, myRider(), lsu, String(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
+  () => send(M.requestLsuSale(account!, myRider(), lsu, decStr(amount), String(+minX.toFixed(6)), String(+minH.toFixed(6))), 'Sale request sent. Waiting for review.'))
 })
 
 // ---------- Community pool ----------
@@ -591,7 +614,7 @@ function renderAdmin() {
         const ok = !why
         return `<tr><td class="n">#${r.id}<br><small class="rep">Badge ${badgeNo(r.requester)}</small></td>
           <td>${tok(r.lsu, r.lsuAmount)}</td>
-          <td class="n">${xrd ? nf(xrd) + ' XRD' : '–'}</td>
+          <td class="n"><b>${xrd ? nf(xrd) + ' XRD' : '–'}</b></td>
           <td class="n">${payText(pay)}<br><small class="rep">min. ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}</small>${!ok ? `<br><small class="red">${esc(why)}</small>` : ''}</td>
           <td><span class="actions"><button class="primary" data-lsu-accept="${r.id}">Accept</button><button data-lsu-reject="${r.id}">Reject</button></span></td></tr>`
       }).join('')
@@ -1163,7 +1186,10 @@ function quickFill(inputId: string, maxOf: () => { amount: number; resource?: st
 const bal = (r: string) => ({ amount: balanceOf(r), resource: r })
 quickFill('lock-amount', () => bal(CONFIG.hardResource))
 quickFill('unlock-amount', () => ({ amount: myLocked }))
-quickFill('lsu-amount', () => bal($<HTMLSelectElement>('#lsu-token').value))
+quickFill('lsu-amount', () => {
+  const lsu = $<HTMLSelectElement>('#lsu-token').value
+  return { amount: balanceOf(lsu) * (lsuRate.get(lsu) ?? 0) }
+})
 quickFill('pool-dep', () => bal(CONFIG.hardResource))
 quickFill('adm-fund-xrd', () => bal(XRD))
 quickFill('adm-fund', () => bal(CONFIG.hardResource))

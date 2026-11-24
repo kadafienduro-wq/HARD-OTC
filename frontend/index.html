@@ -162,7 +162,7 @@
         <div class="box">
           <h3>Sell us your staked XRD</h3>
           <div class="inline">
-            <input id="lsu-amount" type="number" min="0" step="any" placeholder="Amount of LSU" />
+            <input id="lsu-amount" type="number" min="0" step="any" placeholder="How much staked XRD to sell (in XRD)" />
             <select id="lsu-token"></select>
             <button id="lsu-sell-btn" class="primary">Request sale</button>
           </div>
@@ -173,7 +173,7 @@
 
         <h3>My requests</h3>
         <table class="stack">
-          <thead><tr><th>#</th><th>Staked XRD</th><th>You get</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>LSU sent</th><th>You get</th><th>Status</th><th></th></tr></thead>
           <tbody id="lsu-mine"></tbody>
         </table>
 
@@ -395,7 +395,7 @@
 
         <h3>Pending requests</h3>
         <table class="stack">
-          <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>To pay</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>LSU received</th><th>Staked XRD (value now)</th><th>To pay</th><th></th></tr></thead>
           <tbody id="adm-lsu-pending"></tbody>
         </table>
         <h3>Bought staked XRD (to unstake)</h3>
