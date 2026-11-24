@@ -60,6 +60,7 @@
       <button data-tab="market" class="active">Market</button>
       <button data-tab="mine">My offers</button>
       <button data-tab="lock">Lock HARD</button>
+      <button data-tab="staked">Staked XRD</button>
       <button data-tab="treasury">Treasury</button>
       <button data-tab="how">How it works</button>
       <button data-tab="admin" id="admin-tab" class="admin-tab" hidden>Admin</button>
@@ -132,6 +133,35 @@
         </div>
       </section>
 
+      <!-- STAKED XRD QUICK BUY -->
+      <section id="tab-staked" hidden>
+        <div class="row"><h2>Quick buy: staked XRD for HARD</h2><span class="pill" id="lsu-status">–</span></div>
+        <p class="muted">Need liquidity now instead of waiting for unstaking? Sell your staked XRD (LSU) to HARD ADV and get HARD. You receive <b id="lsu-payout-text">–</b> of your LSU's current value, paid in HARD. Every request is reviewed manually by HARD ADV; until then your LSU waits in escrow and you can cancel any time.</p>
+        <div class="stats">
+          <div class="stat"><span>You receive</span><b id="lsu-payout">–</b></div>
+          <div class="stat"><span>HARD price used</span><b id="lsu-price">–</b></div>
+          <div class="stat"><span>HARD available</span><b id="lsu-pool">–</b></div>
+          <div class="stat"><span>Max per request</span><b id="lsu-max">–</b></div>
+        </div>
+
+        <div class="box">
+          <h3>Sell staked XRD</h3>
+          <div class="inline">
+            <input id="lsu-amount" type="number" min="0" step="any" placeholder="Amount of LSU" />
+            <select id="lsu-token"></select>
+            <button id="lsu-sell-btn" class="primary">Request sale</button>
+          </div>
+          <small class="hint" id="lsu-hint"></small>
+          <div class="summary" id="lsu-quote"></div>
+        </div>
+
+        <h3>My requests</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>Staked XRD</th><th>HARD</th><th>Status</th><th></th></tr></thead>
+          <tbody id="lsu-mine"></tbody>
+        </table>
+      </section>
+
       <!-- TREASURY -->
       <section id="tab-treasury" hidden>
         <h2>Desk treasury</h2>
@@ -150,6 +180,10 @@
           <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
           <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
           <div class="stat"><span>HARD burned forever</span><b id="burned">–</b></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><span>Staked XRD bought</span><b id="lsu-bought">–</b></div>
+          <div class="stat"><span>HARD paid for staked XRD</span><b id="lsu-paid">–</b></div>
         </div>
         <h3>Fees earned (all time)</h3>
         <table>
@@ -172,6 +206,7 @@
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
           <li><b>Featuring (★).</b> After posting, sellers can pay HARD per 24 hours to pin their offer at the top of the market. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
+          <li><b>Quick buy of staked XRD.</b> Sell your LSU to HARD ADV for HARD at a discount to its current value (shown on the Staked XRD tab). Requests are reviewed manually; you can cancel until then.</li>
           <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
@@ -237,6 +272,52 @@
             <button id="adm-pause-btn">Pause desk</button>
           </div>
         </div>
+
+        <h3>Quick buy: staked XRD</h3>
+        <div class="admin-grid">
+          <div class="box">
+            <h3>Settings</h3>
+            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
+            <label class="fld">Discount for sellers (%)
+              <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 15 or 20" />
+              <small class="hint" id="adm-lsu-disc-hint">Sellers get the LSU value minus this %.</small>
+            </label>
+            <label class="fld">Max HARD per request
+              <input id="adm-lsu-max" type="number" min="0" step="any" placeholder="e.g. 500000" />
+            </label>
+            <div class="inline" style="margin-top:8px">
+              <button id="adm-lsu-save" class="primary">Save &amp; enable</button>
+              <button id="adm-lsu-off">Disable</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>HARD price (XRD per HARD)</h3>
+            <p class="muted">Used when you accept requests. Update it from Ociswap before accepting. Current: <b id="adm-price-now">–</b></p>
+            <div class="inline">
+              <input id="adm-price" type="number" min="0" step="any" placeholder="e.g. 0.07" />
+              <button id="adm-price-btn" class="primary">Save</button>
+            </div>
+          </div>
+          <div class="box">
+            <h3>Buyback HARD pool</h3>
+            <p class="muted">HARD paid out to sellers. Available: <b id="adm-pool-now">–</b></p>
+            <div class="inline">
+              <input id="adm-fund" type="number" min="0" step="any" placeholder="HARD to add" />
+              <button id="adm-fund-btn" class="primary">Add HARD</button>
+              <button id="adm-pool-out">Withdraw all</button>
+            </div>
+          </div>
+        </div>
+        <h3>Pending requests</h3>
+        <table class="stack">
+          <thead><tr><th>#</th><th>Staked XRD</th><th>Value now</th><th>HARD to pay</th><th></th></tr></thead>
+          <tbody id="adm-lsu-pending"></tbody>
+        </table>
+        <h3>Bought staked XRD (to unstake)</h3>
+        <table>
+          <thead><tr><th>LSU</th><th class="num">In desk</th><th></th></tr></thead>
+          <tbody id="adm-lsu-hold"></tbody>
+        </table>
 
         <h3>Verified tokens</h3>
         <p class="muted">Tokens marked ✓ on the site. Add only tokens whose address you have checked (official HARD, XRD, known LSUs and LP tokens).</p>

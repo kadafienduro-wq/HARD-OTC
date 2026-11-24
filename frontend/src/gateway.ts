@@ -86,8 +86,19 @@ export type DeskInfo = {
   reservationFeesHard: number
   riderStatsKvs: string
   v3: boolean
+  lsuEnabled: boolean
+  lsuPayout: number
+  hardPrice: number
+  hardPriceUpdatedAt: number
+  lsuMaxPerTx: number
+  buybackVault: string
+  lsuRequestsKvs: string
+  lsuVaultsKvs: string
+  nextLsuId: number
+  lsuBought: { address: string; amount: string }[]
+  lsuHardPaid: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -118,6 +129,17 @@ export async function loadDeskInfo() {
     reservationFeesHard: Number(state.reservation_fees_hard ?? 0),
     riderStatsKvs: state.rider_stats ?? '',
     v3: state.promotion_fee_hard !== undefined,
+    lsuEnabled: state.lsu_buyback_enabled === true,
+    lsuPayout: Number(state.lsu_payout ?? 0),
+    hardPrice: Number(state.hard_price_xrd ?? 0),
+    hardPriceUpdatedAt: toMs(state.hard_price_updated_at),
+    lsuMaxPerTx: Number(state.lsu_max_hard_per_tx ?? 0),
+    buybackVault: state.buyback_hard ?? '',
+    lsuRequestsKvs: state.lsu_requests ?? '',
+    lsuVaultsKvs: state.lsu_vaults ?? '',
+    nextLsuId: Number(state.next_lsu_request_id ?? 1),
+    lsuBought: (state.lsu_bought ?? []).map((e: any) => ({ address: e[0], amount: String(e[1]) })),
+    lsuHardPaid: Number(state.lsu_hard_paid ?? 0),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -165,6 +187,65 @@ export async function getTreasuryBalance(resource: string): Promise<number> {
   })
   const vault = data.entries?.[0]?.value?.programmatic_json?.value
   return vault ? getVaultAmount(vault) : 0
+}
+
+export type LsuRequest = {
+  id: string
+  requester: string
+  account: string
+  lsu: string
+  lsuAmount: number
+  minHardOut: number
+  createdAt: number
+  status: 'Pending' | 'Accepted' | 'Rejected' | 'Cancelled'
+  hardPaid: number
+}
+
+/** Zlecenia sprzedaży stakowanego XRD (ostatnie 200). */
+export async function getLsuRequests(): Promise<LsuRequest[]> {
+  if (!desk.lsuRequestsKvs || desk.nextLsuId <= 1) return []
+  const ids: string[] = []
+  for (let i = Math.max(1, desk.nextLsuId - 200); i < desk.nextLsuId; i++) ids.push(String(i))
+  const out: LsuRequest[] = []
+  for (let i = 0; i < ids.length; i += 100) {
+    const data = await post('/state/key-value-store/data', {
+      key_value_store_address: desk.lsuRequestsKvs,
+      keys: ids.slice(i, i + 100).map((id) => ({ key_json: { kind: 'U64', value: id } })),
+    })
+    for (const e of data.entries ?? []) {
+      const r = decode(e.value.programmatic_json)
+      out.push({
+        id: String(e.key.programmatic_json.value), requester: r.requester, account: r.account, lsu: r.lsu,
+        lsuAmount: Number(r.lsu_amount), minHardOut: Number(r.min_hard_out), createdAt: toMs(r.created_at),
+        status: r.status.variant, hardPaid: Number(r.hard_paid),
+      })
+    }
+  }
+  return out.sort((a, b) => Number(b.id) - Number(a.id))
+}
+
+/** Ile XRD jest warte `amount` LSU (wg walidatora: XRD w stake vault / podaż LSU). */
+export async function getLsuXrdValue(lsu: string, amount: number): Promise<number> {
+  const t = tokenInfo(lsu)
+  if (!t.validator || !t.supply) return 0
+  const r = await post('/state/entity/details', { addresses: [t.validator] })
+  const st = r.items?.[0]?.details?.state ?? {}
+  const vault = st.stake_xrd_vault?.entity_address ?? st.stake_xrd_vault
+  const xrd = await getVaultAmount(vault)
+  return (amount * xrd) / t.supply
+}
+
+/** Ile odkupionego LSU leży w desku. */
+export async function getLsuHoldings(lsus: string[]): Promise<{ address: string; amount: number }[]> {
+  if (!desk.lsuVaultsKvs || !lsus.length) return []
+  const data = await post('/state/key-value-store/data', {
+    key_value_store_address: desk.lsuVaultsKvs,
+    keys: lsus.map((a) => ({ key_json: { kind: 'Reference', value: a } })),
+  })
+  return Promise.all((data.entries ?? []).map(async (e: any) => ({
+    address: e.key.programmatic_json.value,
+    amount: await getVaultAmount(e.value.programmatic_json.value),
+  })))
 }
 
 export type RiderStats = { sells: number; buys: number; offers: number }
@@ -234,7 +315,7 @@ export async function getOffers(): Promise<OfferView[]> {
     .sort((a: OfferView, b: OfferView) => Number(b.id) - Number(a.id))
 }
 
-export type TokenInfo = { address: string; symbol: string; name: string; icon: string | null }
+export type TokenInfo = { address: string; symbol: string; name: string; icon: string | null; validator?: string; supply?: number }
 
 const tokenCache = new Map<string, TokenInfo>()
 
@@ -252,6 +333,8 @@ export async function getTokens(addresses: string[]): Promise<Map<string, TokenI
         symbol: get('symbol') || get('name') || short(item.address),
         name: get('name') || '',
         icon: icon && icon.startsWith('https://') ? icon : null,
+        validator: get('validator') || undefined,
+        supply: Number(item.details?.total_supply ?? 0),
       })
     }
   }

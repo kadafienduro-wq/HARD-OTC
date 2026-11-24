@@ -105,3 +105,35 @@ CALL_METHOD Address("${desk()}") "remove_verified" Address("${resource}");`
 
 export const adminSetReservationFee = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_reservation_fee" Decimal("${amount}");`
+
+// ---------- Quick buy: stakowane XRD (LSU) za HARD ----------
+export const requestLsuSale = (account: string, riderId: string, lsu: string, amount: string, minHardOut: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${lsu}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${lsu}") Bucket("lsu");${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "request_lsu_sale" Proof("rider") Bucket("lsu") Decimal("${minHardOut}") Address("${account}");${depositAll(account)}`
+
+export const cancelLsuSale = (account: string, riderId: string, id: string) => `${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "cancel_lsu_sale" ${id}u64 Proof("rider");${depositAll(account)}`
+
+export const adminAcceptLsu = (account: string, adminBadge: string, id: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "accept_lsu_sale" ${id}u64;`
+
+export const adminRejectLsu = (account: string, adminBadge: string, id: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "reject_lsu_sale" ${id}u64;`
+
+export const adminSetLsuBuyback = (account: string, adminBadge: string, enabled: boolean, payout: string, maxPerTx: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_lsu_buyback" ${enabled} Decimal("${payout}") Decimal("${maxPerTx}");`
+
+export const adminSetHardPrice = (account: string, adminBadge: string, xrdPerHard: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_hard_price" Decimal("${xrdPerHard}");`
+
+export const adminFundBuyback = (account: string, adminBadge: string, hard: string, amount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("hard");${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "fund_lsu_buyback" Bucket("hard");`
+
+export const adminWithdrawBuybackHard = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_buyback_hard";${depositAll(account)}`
+
+export const adminWithdrawLsu = (account: string, adminBadge: string, lsu: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_lsu" Address("${lsu}");${depositAll(account)}`

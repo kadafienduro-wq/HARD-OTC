@@ -4,6 +4,7 @@ import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -18,6 +19,10 @@ let treasuryHard = 0
 let treasuryAll: { address: string; amount: number }[] = []
 let stats = new Map<string, RiderStats>()
 let loaded = false
+let lsuRequests: LsuRequest[] = []
+let buybackPool = 0
+let lsuHoldings: { address: string; amount: number }[] = []
+const lsuValue = new Map<string, number>() // request id -> XRD value now
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector(sel) as T
 const myRider = () => riderIds[0]
@@ -153,6 +158,10 @@ async function refreshAll() {
       getVaultAmount(desk.burnedVault).catch(() => 0),
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
+    ;[lsuRequests, buybackPool] = await Promise.all([
+      getLsuRequests().catch(() => []),
+      getVaultAmount(desk.buybackVault).catch(() => 0),
+    ])
     ;[stats, treasuryAll] = await Promise.all([
       getRiderStats(offers.map((o) => o.seller)).catch(() => new Map()),
       Promise.all(desk.feesCollected.map(async (f) => ({ address: f.address, amount: await getTreasuryBalance(f.address).catch(() => 0) }))),
@@ -164,7 +173,14 @@ async function refreshAll() {
       CONFIG.hardResource,
       ...desk.feesCollected.map((f) => f.address),
       ...desk.verified,
+      ...lsuRequests.map((r) => r.lsu),
+      ...desk.lsuBought.map((b) => b.address),
     ])
+    lsuHoldings = await getLsuHoldings(desk.lsuBought.map((b) => b.address)).catch(() => [])
+    if (isAdmin()) {
+      for (const r of lsuRequests.filter((x) => x.status === 'Pending'))
+        lsuValue.set(r.id, await getLsuXrdValue(r.lsu, r.lsuAmount).catch(() => 0))
+    }
     loaded = true
   } catch (e) {
     console.error(e)
@@ -181,6 +197,7 @@ function render() {
   renderMarket()
   renderMine()
   renderLock()
+  renderStaked()
   renderTreasury()
   renderAdmin()
   if (($('#create-dialog') as HTMLDialogElement).open) updateCreateSummary()
@@ -345,6 +362,75 @@ function renderLock() {
   }
 }
 
+// ---------- Staked XRD quick buy ----------
+const myLsus = () => walletTokens().filter((a) => tokenInfo(a).validator)
+const hardFor = (xrdValue: number) => (desk.hardPrice > 0 ? (xrdValue * desk.lsuPayout) / desk.hardPrice : 0)
+let lsuQuote = { xrd: 0, hard: 0 }
+
+function renderStaked() {
+  const on = desk.lsuEnabled && !desk.paused
+  $('#lsu-status').textContent = on ? 'Open' : 'Closed'
+  $('#lsu-status').className = on ? 'pill ok' : 'pill bad'
+  const pctTxt = desk.lsuPayout ? `${Math.round(desk.lsuPayout * 100)}%` : '–'
+  $('#lsu-payout-text').textContent = desk.lsuPayout ? `${pctTxt} (−${Math.round((1 - desk.lsuPayout) * 100)}%)` : '–'
+  $('#lsu-payout').textContent = desk.lsuPayout ? `${pctTxt} of value` : '–'
+  $('#lsu-price').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD` : 'not set'
+  $('#lsu-pool').textContent = `${nf(buybackPool, 0)} HARD`
+  $('#lsu-max').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  const sel = $<HTMLSelectElement>('#lsu-token')
+  const prev = sel.value
+  const lsus = myLsus()
+  sel.innerHTML = lsus.length ? lsus.map((a) => `<option value="${esc(a)}">${esc(sym(a))} (${nf(balanceOf(a))})</option>`).join('') : '<option value="">No staked XRD in wallet</option>'
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev
+  $<HTMLButtonElement>('#lsu-sell-btn').disabled = !on || !lsus.length || !myRider()
+  const mine = lsuRequests.filter((r) => riderIds.includes(r.requester))
+  $('#lsu-mine').innerHTML = mine.length
+    ? mine.map((r) => `<tr>
+        <td class="n">#${r.id}<br><small class="rep">${new Date(r.createdAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</small></td>
+        <td>${tok(r.lsu, r.lsuAmount)}</td>
+        <td class="n">${r.status === 'Accepted' ? `${nf(r.hardPaid)} HARD` : `min. ${nf(r.minHardOut)} HARD`}</td>
+        <td>${{ Pending: '<span class="pill live">Waiting for review</span>', Accepted: '<span class="pill ok">Paid</span>', Rejected: '<span class="pill bad">Rejected · LSU returned</span>', Cancelled: '<span class="pill">Cancelled</span>' }[r.status]}</td>
+        <td>${r.status === 'Pending' ? `<button data-lsu-cancel="${r.id}">Cancel</button>` : ''}</td></tr>`).join('')
+    : `<tr><td colspan="5" class="empty">${account ? 'No requests yet.' : 'Connect your wallet to see your requests.'}</td></tr>`
+}
+
+async function updateLsuQuote() {
+  const lsu = $<HTMLSelectElement>('#lsu-token').value
+  const amount = Number($<HTMLInputElement>('#lsu-amount').value || 0)
+  if (!lsu || !(amount > 0)) {
+    $('#lsu-quote').innerHTML = ''
+    $('#lsu-hint').textContent = lsu ? `Balance: ${nf(balanceOf(lsu))} ${sym(lsu)}` : ''
+    return
+  }
+  const xrd = await getLsuXrdValue(lsu, amount).catch(() => 0)
+  lsuQuote = { xrd, hard: hardFor(xrd) }
+  $('#lsu-hint').textContent = amount > balanceOf(lsu) ? `You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.` : `Balance: ${nf(balanceOf(lsu))} ${sym(lsu)}`
+  $('#lsu-quote').innerHTML = `
+    <div class="sline"><span>Current value of your staked XRD</span><b>${xrd ? nf(xrd) + ' XRD' : 'unavailable'}</b></div>
+    <div class="sline"><span>You get (${Math.round(desk.lsuPayout * 100)}% of value, at ${nf(desk.hardPrice, 6)} XRD/HARD)</span><b>≈ ${nf(lsuQuote.hard)} HARD</b></div>
+    <p class="snote">Final amount is set when HARD ADV accepts the request, using the value at that moment. You'll never get less than ${nf(lsuQuote.hard * 0.97)} HARD (−3% tolerance); otherwise the request is rejected and your LSU returned.</p>`
+}
+$('#lsu-amount').addEventListener('input', updateLsuQuote)
+$('#lsu-token').addEventListener('change', updateLsuQuote)
+$('#lsu-sell-btn').addEventListener('click', async () => {
+  if (!account || !myRider()) return toast('Connect your wallet and mint a HARD OTC Badge first.')
+  const lsu = $<HTMLSelectElement>('#lsu-token').value
+  const amount = Number($<HTMLInputElement>('#lsu-amount').value || 0)
+  if (!lsu || !(amount > 0)) return toast('Choose your staked XRD and enter an amount.')
+  if (amount > balanceOf(lsu)) return toast(`You only have ${nf(balanceOf(lsu))} ${sym(lsu)}.`)
+  await updateLsuQuote()
+  if (!lsuQuote.hard) return toast('Could not price this LSU right now. Try again shortly.')
+  if (lsuQuote.hard > desk.lsuMaxPerTx) return toast(`Max per request is ${nf(desk.lsuMaxPerTx)} HARD. Sell a smaller amount.`)
+  const min = lsuQuote.hard * 0.97
+  confirmAction('Request staked XRD sale', [
+    ['You send to escrow', `${nf(amount)} ${esc(sym(lsu))}`],
+    ['Value now', `${nf(lsuQuote.xrd)} XRD`],
+    ['You get (estimate)', `≈ ${nf(lsuQuote.hard)} HARD`],
+    ['Minimum you accept', `${nf(min)} HARD`],
+  ], 'HARD ADV reviews the request manually. If accepted, HARD goes straight to your wallet. If rejected, your LSU comes back. You can cancel while it is waiting.',
+  () => send(M.requestLsuSale(account!, myRider(), lsu, String(amount), String(+min.toFixed(6))), 'Sale request sent. Waiting for review.'))
+})
+
 // ---------- Treasury ----------
 function renderTreasury() {
   const spent = Number(desk.treasuryWithdrawn.find((w) => w.address === CONFIG.hardResource)?.amount ?? 0)
@@ -357,6 +443,8 @@ function renderTreasury() {
   $('#promo-fee').textContent = desk.v3 ? (desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'Free') : '–'
   $('#trading-fee').textContent = `${(desk.feePerSide * 100).toFixed(2)}% / side`
   $('#burn-share').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}% of HARD fees` : 'Off'
+  $('#lsu-bought').textContent = desk.lsuBought.length ? desk.lsuBought.map((b) => `${nf(Number(b.amount), 2)} ${sym(b.address)}`).join(' · ') : '0'
+  $('#lsu-paid').textContent = `${nf(desk.lsuHardPaid, 2)} HARD`
   $('#fees-body').innerHTML = desk.feesCollected.length
     ? desk.feesCollected.map((f) => `<tr><td>${tok(f.address)}</td><td class="num">${nf(Number(f.amount))}</td></tr>`).join('')
     : '<tr><td colspan="2" class="empty">No fees yet. The first trade will fund the treasury.</td></tr>'
@@ -381,6 +469,27 @@ function renderAdmin() {
   $('#adm-status').className = desk.paused ? 'red' : ''
   $('#adm-pause-btn').textContent = desk.paused ? 'Resume desk' : 'Pause desk'
   document.querySelectorAll<HTMLButtonElement>('[data-unlock]').forEach((b) => b.classList.toggle('on', Number(b.dataset.unlock) === desk.unlockPeriod))
+  $('#adm-lsu-status').textContent = desk.lsuEnabled ? 'Open' : 'Closed'
+  $('#adm-lsu-payout-now').textContent = desk.lsuPayout ? `${Math.round(desk.lsuPayout * 100)}% (−${Math.round((1 - desk.lsuPayout) * 100)}%)` : '–'
+  $('#adm-lsu-max-now').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  $('#adm-price-now').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD (updated ${desk.hardPriceUpdatedAt ? new Date(desk.hardPriceUpdatedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '–'})` : 'not set'
+  $('#adm-pool-now').textContent = `${nf(buybackPool)} HARD`
+  const pend = lsuRequests.filter((r) => r.status === 'Pending')
+  $('#adm-lsu-pending').innerHTML = pend.length
+    ? pend.map((r) => {
+        const xrd = lsuValue.get(r.id) ?? 0
+        const hard = hardFor(xrd)
+        const ok = hard >= r.minHardOut && hard <= buybackPool && hard <= desk.lsuMaxPerTx && desk.hardPrice > 0
+        return `<tr><td class="n">#${r.id}<br><small class="rep">Badge ${badgeNo(r.requester)}</small></td>
+          <td>${tok(r.lsu, r.lsuAmount)}</td>
+          <td class="n">${xrd ? nf(xrd) + ' XRD' : '–'}</td>
+          <td class="n">${nf(hard)} HARD<br><small class="rep">min. ${nf(r.minHardOut)}</small>${!ok ? '<br><small class="red">cannot accept now</small>' : ''}</td>
+          <td><span class="actions"><button class="primary" data-lsu-accept="${r.id}" ${ok ? '' : 'disabled'}>Accept</button><button data-lsu-reject="${r.id}">Reject</button></span></td></tr>`
+      }).join('')
+    : '<tr><td colspan="5" class="empty">No pending requests.</td></tr>'
+  $('#adm-lsu-hold').innerHTML = lsuHoldings.length
+    ? lsuHoldings.map((h) => `<tr><td>${tok(h.address)}</td><td class="num">${nf(h.amount)}</td><td>${h.amount > 0 ? `<button data-lsu-withdraw="${esc(h.address)}">Withdraw to unstake</button>` : ''}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty">No staked XRD bought yet.</td></tr>'
   $('#adm-verified-body').innerHTML = desk.verified.length
     ? desk.verified.map((v) => `<tr><td>${tok(v)}</td><td><button data-unverify="${esc(v)}">Remove</button></td></tr>`).join('')
     : '<tr><td colspan="2" class="empty">No verified tokens.</td></tr>'
@@ -414,6 +523,42 @@ $('#adm-res-btn').addEventListener('click', () => {
   adminSend('Change reservation fee', [['Now', desk.reservationFee ? `${nf(desk.reservationFee)} HARD / 24h` : 'free'], ['New', v ? `${nf(v)} HARD / 24h` : 'free']], 'Charged per started 24 hours of the offer’s validity, on top of the listing fee.',
     () => M.adminSetReservationFee(account!, desk.adminBadge, String(v)), `Reservation fee set to ${nf(v)} HARD`)
 })
+const lsuSettings = (enabled: boolean) => {
+  const dRaw = $<HTMLInputElement>('#adm-lsu-disc').value
+  const mRaw = $<HTMLInputElement>('#adm-lsu-max').value
+  const payout = dRaw === '' ? desk.lsuPayout : 1 - Number(dRaw) / 100
+  const max = mRaw === '' ? desk.lsuMaxPerTx : Number(mRaw)
+  if (!(payout > 0 && payout <= 1)) return toast('Discount must be between 0 and 99%.')
+  if (!(max > 0)) return toast('Max per request must be above 0.')
+  adminSend(enabled ? 'Open staked XRD quick buy' : 'Close staked XRD quick buy', [
+    ['Status', enabled ? 'Open' : 'Closed'],
+    ['Sellers receive', `${Math.round(payout * 100)}% of LSU value (−${Math.round((1 - payout) * 100)}%)`],
+    ['Max per request', `${nf(max)} HARD`],
+  ], '', () => M.adminSetLsuBuyback(account!, desk.adminBadge, enabled, String(payout), String(max)), enabled ? 'Quick buy settings saved' : 'Quick buy closed')
+}
+$('#adm-lsu-save').addEventListener('click', () => lsuSettings(true))
+$('#adm-lsu-disc').addEventListener('input', () => {
+  const d = Number($<HTMLInputElement>('#adm-lsu-disc').value)
+  $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets HARD worth ${nf(100 - d, 2)} XRD.` : 'Enter 0–99.'
+})
+$('#adm-lsu-off').addEventListener('click', () => lsuSettings(false))
+$('#adm-price-btn').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#adm-price').value)
+  if (!(v > 0)) return toast('Enter the HARD price in XRD, e.g. 0.07.')
+  adminSend('Set HARD price', [['Now', desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD` : 'not set'], ['New', `${nf(v, 6)} XRD per HARD`]], 'Used to calculate HARD paid when you accept staked XRD requests.',
+    () => M.adminSetHardPrice(account!, desk.adminBadge, String(v)), 'HARD price updated')
+})
+$('#adm-fund-btn').addEventListener('click', () => {
+  const v = Number($<HTMLInputElement>('#adm-fund').value)
+  if (!(v > 0)) return toast('Enter how much HARD to add.')
+  if (v > balanceOf(CONFIG.hardResource)) return toast(`You only have ${nf(balanceOf(CONFIG.hardResource))} HARD.`)
+  adminSend('Add HARD to buyback pool', [['You add', `${nf(v)} HARD`], ['Pool after', `${nf(buybackPool + v)} HARD`]], '',
+    () => M.adminFundBuyback(account!, desk.adminBadge, CONFIG.hardResource, String(v)), `${nf(v)} HARD added to the pool`)
+})
+$('#adm-pool-out').addEventListener('click', () => {
+  adminSend('Withdraw buyback pool', [['You receive', `${nf(buybackPool)} HARD`]], 'Quick buy cannot pay out until you add HARD again.',
+    () => M.adminWithdrawBuybackHard(account!, desk.adminBadge), 'Buyback pool withdrawn')
+})
 $('#adm-verify-btn').addEventListener('click', () => {
   const addr = $<HTMLInputElement>('#adm-verify').value.trim()
   if (!/^resource_/.test(addr)) return toast('Paste a token address starting with resource_.')
@@ -444,7 +589,7 @@ $('#adm-pause-btn').addEventListener('click', () => {
 })
 
 // ---------- Tabs ----------
-const TABS = ['market', 'mine', 'lock', 'treasury', 'how', 'admin']
+const TABS = ['market', 'mine', 'lock', 'staked', 'treasury', 'how', 'admin']
 function showTab(t: string) {
   document.querySelectorAll<HTMLButtonElement>('nav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === t))
   for (const x of TABS) $(`#tab-${x}`).hidden = x !== t
@@ -488,6 +633,30 @@ document.addEventListener('click', (e) => {
   }
 
   if (el.dataset.promote && account && myRider()) openPromote(offers.find((x) => x.id === el.dataset.promote)!)
+
+  if (el.dataset.lsuCancel && account && myRider()) {
+    const r = lsuRequests.find((x) => x.id === el.dataset.lsuCancel)!
+    confirmAction(`Cancel request #${r.id}`, [['You get back', `${nf(r.lsuAmount)} ${esc(sym(r.lsu))}`]], '',
+      () => send(M.cancelLsuSale(account!, myRider(), r.id), `Request #${r.id} cancelled, LSU returned`))
+  }
+  if (el.dataset.lsuAccept && isAdmin()) {
+    const r = lsuRequests.find((x) => x.id === el.dataset.lsuAccept)!
+    const hard = hardFor(lsuValue.get(r.id) ?? 0)
+    adminSend(`Accept request #${r.id}`, [['You receive', `${nf(r.lsuAmount)} ${esc(sym(r.lsu))}`], ['Seller gets', `≈ ${nf(hard)} HARD`], ['HARD price', `${nf(desk.hardPrice, 6)} XRD`]],
+      'HARD is paid from the buyback pool straight to the seller. The exact amount uses the LSU value at signing.',
+      () => M.adminAcceptLsu(account!, desk.adminBadge, r.id), `Request #${r.id} accepted`)
+  }
+  if (el.dataset.lsuReject && isAdmin()) {
+    const r = lsuRequests.find((x) => x.id === el.dataset.lsuReject)!
+    adminSend(`Reject request #${r.id}`, [['LSU returned to seller', `${nf(r.lsuAmount)} ${esc(sym(r.lsu))}`]], '',
+      () => M.adminRejectLsu(account!, desk.adminBadge, r.id), `Request #${r.id} rejected`)
+  }
+  if (el.dataset.lsuWithdraw && isAdmin()) {
+    const a = el.dataset.lsuWithdraw
+    const amt = lsuHoldings.find((h) => h.address === a)?.amount ?? 0
+    adminSend('Withdraw staked XRD', [['You receive', `${nf(amt)} ${esc(sym(a))}`]], 'Unstake it in your Radix Wallet (or a staking dashboard), then use the XRD to buy back HARD.',
+      () => M.adminWithdrawLsu(account!, desk.adminBadge, a), 'Staked XRD withdrawn')
+  }
 
   if (el.dataset.unverify && isAdmin()) {
     const r = el.dataset.unverify
