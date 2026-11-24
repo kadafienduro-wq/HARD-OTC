@@ -11,6 +11,9 @@
 //! 6. Wyróżnienie oferty (★): 50 HARD za każde 24 h, dokupowane w dowolnym momencie (ustawia admin).
 //! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
 //! 8. Reputacja: liczniki transakcji ridera (sprzedaże, zakupy).
+//! 10. Skup LSU za HARD: użytkownik oddaje LSU (stakowane XRD), dostaje HARD wart wartość LSU w XRD
+//!     + bonus (domyślnie +20%). Wartość LSU czytana z walidatora on-chain; cenę HARD w XRD ustawia admin
+//!     (ważna 24 h, potem skup się sam wstrzymuje). HARD pochodzi z puli skupu zasilanej przez admina.
 //! 9. Wypłata locka w dwóch krokach z okresem oczekiwania (domyślnie 7 dni).
 //!
 //! Obie strony oferty: zasoby fungible (tokeny, LSU, LP). NFT — w kolejnej wersji.
@@ -101,13 +104,21 @@ pub struct FeeCollectedEvent {
 }
 
 #[derive(ScryptoSbor, ScryptoEvent)]
+pub struct LsuSoldEvent {
+    pub lsu: ResourceAddress,
+    pub lsu_amount: Decimal,
+    pub xrd_value: Decimal,
+    pub hard_out: Decimal,
+}
+
+#[derive(ScryptoSbor, ScryptoEvent)]
 pub struct HardLockChangedEvent {
     pub rider: NonFungibleLocalId,
     pub locked_total: Decimal,
 }
 
 #[blueprint]
-#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, OfferPromotedEvent, HardLockChangedEvent, FeeCollectedEvent)]
+#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, OfferPromotedEvent, HardLockChangedEvent, FeeCollectedEvent, LsuSoldEvent)]
 mod hard_otc {
     enable_method_auth! {
         methods {
@@ -116,6 +127,7 @@ mod hard_otc {
             accept_offer => PUBLIC;
             cancel_offer => PUBLIC;
             promote_offer => PUBLIC;
+            sell_lsu => PUBLIC;
             lock_hard => PUBLIC;
             request_unlock => PUBLIC;
             withdraw_unlocked => PUBLIC;
@@ -129,6 +141,11 @@ mod hard_otc {
             set_promotion_fee => restrict_to: [OWNER];
             set_reservation_fee => restrict_to: [OWNER];
             add_verified => restrict_to: [OWNER];
+            set_lsu_buyback => restrict_to: [OWNER];
+            set_hard_price => restrict_to: [OWNER];
+            fund_lsu_buyback => restrict_to: [OWNER];
+            withdraw_buyback_hard => restrict_to: [OWNER];
+            withdraw_lsu => restrict_to: [OWNER];
             remove_verified => restrict_to: [OWNER];
         }
     }
@@ -171,6 +188,25 @@ mod hard_otc {
         treasury_withdrawn: IndexMap<ResourceAddress, Decimal>,
         /// HARD zamknięte na zawsze. Nie ma metody, która je wypłaca.
         burned_hard: Vault,
+        // ---- Skup LSU za HARD ----
+        lsu_buyback_enabled: bool,
+        /// bonus dla sprzedającego LSU, np. 0.2 = +20% HARD ponad wartość rynkową
+        lsu_bonus: Decimal,
+        /// cena HARD w XRD (ile XRD za 1 HARD), ustawiana przez admina
+        hard_price_xrd: Decimal,
+        hard_price_updated_at: Instant,
+        /// po ilu sekundach cena jest nieaktualna (skup się wstrzymuje)
+        hard_price_max_age: i64,
+        /// maks. HARD wypłacane w jednej transakcji skupu
+        lsu_max_hard_per_tx: Decimal,
+        /// HARD przeznaczone na skup (zasila admin)
+        buyback_hard: Vault,
+        /// odkupione LSU (admin wypłaca, odstakowuje, odkupuje HARD)
+        lsu_vaults: KeyValueStore<ResourceAddress, Vault>,
+        /// łącznie: ile LSU skupiono i ile HARD wydano
+        lsu_bought: IndexMap<ResourceAddress, Decimal>,
+        lsu_hard_paid: Decimal,
+
         hard_locks: KeyValueStore<NonFungibleLocalId, Vault>,
         /// HARD w trakcie wypłaty (nie liczą się do rabatu)
         unlocking: KeyValueStore<NonFungibleLocalId, Vault>,
@@ -234,6 +270,16 @@ mod hard_otc {
                 listing_fees_hard: Decimal::ZERO,
                 treasury_withdrawn: IndexMap::new(),
                 burned_hard: Vault::new(hard_resource),
+                lsu_buyback_enabled: false,
+                lsu_bonus: dec!("0.2"),
+                hard_price_xrd: Decimal::ZERO,
+                hard_price_updated_at: Instant::new(0),
+                hard_price_max_age: 24 * 3600,
+                lsu_max_hard_per_tx: dec!("1000000"),
+                buyback_hard: Vault::new(hard_resource),
+                lsu_vaults: KeyValueStore::new(),
+                lsu_bought: IndexMap::new(),
+                lsu_hard_paid: Decimal::ZERO,
                 hard_locks: KeyValueStore::new(),
                 unlocking: KeyValueStore::new(),
                 unlock_ready_at: KeyValueStore::new(),
@@ -532,6 +578,57 @@ mod hard_otc {
             asset
         }
 
+        // ---------- Skup LSU za HARD ----------
+
+        /// Sprzedaj LSU (stakowane XRD) za HARD z bonusem. `min_hard_out` chroni przed zmianą ceny.
+        pub fn sell_lsu(&mut self, lsu: Bucket, min_hard_out: Decimal) -> Bucket {
+            assert!(!self.paused, "Desk is paused");
+            assert!(self.lsu_buyback_enabled, "LSU buyback is not active");
+            assert!(self.hard_price_xrd > Decimal::ZERO, "HARD price not set");
+            let now = Clock::current_time_rounded_to_seconds().seconds_since_unix_epoch;
+            assert!(
+                now - self.hard_price_updated_at.seconds_since_unix_epoch <= self.hard_price_max_age,
+                "HARD price is outdated, buyback paused until admin updates it"
+            );
+
+            let lsu_resource = lsu.resource_address();
+            let lsu_amount = lsu.amount();
+            assert!(lsu_amount > Decimal::ZERO, "Nothing to sell");
+            let xrd_value = Self::lsu_xrd_value(lsu_resource, lsu_amount);
+
+            let hard_out = xrd_value
+                .checked_mul(Decimal::ONE.checked_add(self.lsu_bonus).unwrap())
+                .unwrap()
+                .checked_div(self.hard_price_xrd)
+                .unwrap();
+            assert!(hard_out <= self.lsu_max_hard_per_tx, "Above the per-transaction limit");
+            assert!(hard_out >= min_hard_out, "Price changed, HARD out below your minimum");
+            assert!(self.buyback_hard.amount() >= hard_out, "Not enough HARD in the buyback pool");
+
+            let paid = self
+                .buyback_hard
+                .take_advanced(hard_out, WithdrawStrategy::Rounded(RoundingMode::ToZero));
+            let paid_amount = paid.amount();
+
+            let exists = self.lsu_vaults.get(&lsu_resource).is_some();
+            if exists {
+                self.lsu_vaults.get_mut(&lsu_resource).unwrap().put(lsu);
+            } else {
+                self.lsu_vaults.insert(lsu_resource, Vault::with_bucket(lsu));
+            }
+            let e = self.lsu_bought.entry(lsu_resource).or_insert(Decimal::ZERO);
+            *e = e.checked_add(lsu_amount).unwrap();
+            self.lsu_hard_paid = self.lsu_hard_paid.checked_add(paid_amount).unwrap();
+
+            Runtime::emit_event(LsuSoldEvent {
+                lsu: lsu_resource,
+                lsu_amount,
+                xrd_value,
+                hard_out: paid_amount,
+            });
+            paid
+        }
+
         // ---------- Lock HARD (rabat) ----------
 
         pub fn lock_hard(&mut self, rider: Proof, hard: Bucket) {
@@ -638,6 +735,37 @@ mod hard_otc {
             self.reservation_fee_hard = amount;
         }
 
+        /// Ustawienia skupu LSU: włącz/wyłącz, bonus (0.2 = +20%), limit HARD na transakcję.
+        pub fn set_lsu_buyback(&mut self, enabled: bool, bonus: Decimal, max_hard_per_tx: Decimal) {
+            assert!(bonus >= Decimal::ZERO && bonus <= Decimal::ONE, "Bonus must be between 0 and 1");
+            assert!(max_hard_per_tx > Decimal::ZERO, "Limit must be positive");
+            self.lsu_buyback_enabled = enabled;
+            self.lsu_bonus = bonus;
+            self.lsu_max_hard_per_tx = max_hard_per_tx;
+        }
+
+        /// Cena HARD w XRD (ile XRD za 1 HARD). Ważna przez 24 h.
+        pub fn set_hard_price(&mut self, xrd_per_hard: Decimal) {
+            assert!(xrd_per_hard > Decimal::ZERO, "Price must be positive");
+            self.hard_price_xrd = xrd_per_hard;
+            self.hard_price_updated_at = Clock::current_time_rounded_to_seconds();
+        }
+
+        /// Zasilenie puli skupu w HARD.
+        pub fn fund_lsu_buyback(&mut self, hard: Bucket) {
+            assert!(hard.resource_address() == self.hard_resource, "Not HARD");
+            self.buyback_hard.put(hard);
+        }
+
+        pub fn withdraw_buyback_hard(&mut self) -> Bucket {
+            self.buyback_hard.take_all()
+        }
+
+        /// Wypłata odkupionych LSU (do odstakowania).
+        pub fn withdraw_lsu(&mut self, lsu: ResourceAddress) -> Bucket {
+            self.lsu_vaults.get_mut(&lsu).expect("No such LSU in the desk").take_all()
+        }
+
         /// Dodaje tokeny do listy zweryfikowanych.
         pub fn add_verified(&mut self, resources: Vec<ResourceAddress>) {
             for r in resources {
@@ -727,6 +855,28 @@ mod hard_otc {
                 to_treasury,
                 burned,
             });
+        }
+
+        /// Sprawdza, że to prawdziwe LSU (metadane "validator" wskazują walidatora, którego
+        /// "pool_unit" to ten sam zasób) i zwraca jego wartość w XRD według walidatora.
+        fn lsu_xrd_value(lsu: ResourceAddress, amount: Decimal) -> Decimal {
+            let validator_addr: GlobalAddress = ResourceManager::from(lsu)
+                .get_metadata("validator")
+                .ok()
+                .flatten()
+                .expect("Not a liquid stake unit (no validator)");
+            let validator: Global<Validator> =
+                Global::from(ComponentAddress::new_or_panic(validator_addr.as_node_id().0));
+            let pool_unit: GlobalAddress = validator
+                .get_metadata("pool_unit")
+                .ok()
+                .flatten()
+                .expect("Validator has no pool unit");
+            assert!(
+                pool_unit.as_node_id() == lsu.as_node_id(),
+                "Token is not this validator's stake unit"
+            );
+            validator.get_redemption_value(amount)
         }
 
         fn assert_fits_divisibility(resource: ResourceAddress, amount: Decimal) {
