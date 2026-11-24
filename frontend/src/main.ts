@@ -390,6 +390,8 @@ const payoutFor = (xrdValue: number, price = priceNow()) => {
   return { total, xrd, hard }
 }
 const payText = (p: { xrd: number; hard: number }) => [p.xrd > 0 ? `${nf(p.xrd)} XRD` : '', p.hard > 0 ? `${nf(p.hard)} HARD` : ''].filter(Boolean).join(' + ') || '–'
+/** Ile jeszcze (wartość wypłat w XRD) można dziś kupić. */
+const lsuLeftToday = () => (Date.now() - desk.lsuDayStart >= 86_400_000 ? desk.lsuDailyLimit : Math.max(0, desk.lsuDailyLimit - desk.lsuDayUsed))
 const splitText = () => `${Math.round(desk.lsuXrdShare * 100)}% XRD + ${Math.round((1 - desk.lsuXrdShare) * 100)}% HARD`
 let lsuQuote = { xrd: 0, pay: { total: 0, xrd: 0, hard: 0 } }
 
@@ -404,7 +406,8 @@ function renderStaked() {
   $('#lsu-pool').textContent = `${nf(buybackXrd, 0)} XRD · ${nf(buybackPool, 0)} HARD`
   $('#lsu-split').textContent = splitText()
   $('#lsu-split-text').textContent = splitText()
-  $('#lsu-max').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  $('#lsu-max').textContent = `${nf(desk.lsuMaxValuePerTx, 0)} XRD worth`
+  $('#lsu-left').textContent = `${nf(lsuLeftToday(), 0)} XRD worth`
   const sel = $<HTMLSelectElement>('#lsu-token')
   const prev = sel.value
   const lsus = myLsus()
@@ -451,7 +454,9 @@ $('#lsu-sell-btn').addEventListener('click', async () => {
   await updateLsuQuote()
   const q = lsuQuote.pay
   if (!q.total || (desk.lsuXrdShare < 1 && !q.hard)) return toast('Could not price this LSU right now. Try again shortly.')
+  if (q.total > desk.lsuMaxValuePerTx) return toast(`Max per request is ${nf(desk.lsuMaxValuePerTx)} XRD worth. Sell a smaller amount.`)
   if (q.hard > desk.lsuMaxPerTx) return toast(`Max per request is ${nf(desk.lsuMaxPerTx)} HARD. Sell a smaller amount.`)
+  if (q.total > lsuLeftToday()) toast(`Today's buying limit is almost used up (${nf(lsuLeftToday())} XRD worth left). Your request may wait until tomorrow.`)
   const minX = q.xrd * 0.99
   const minH = q.hard * 0.99
   confirmAction('Request staked XRD sale', [
@@ -544,7 +549,8 @@ function renderAdmin() {
   $('#adm-lsu-payout-now').textContent = desk.lsuPayout ? `${Math.round(desk.lsuPayout * 100)}% (−${Math.round((1 - desk.lsuPayout) * 100)}%)` : '–'
   $('#adm-lsu-split-now').textContent = splitText()
   $('#adm-xrd-now').textContent = `${nf(buybackXrd)} XRD`
-  $('#adm-lsu-max-now').textContent = desk.lsuMaxPerTx ? `${nf(desk.lsuMaxPerTx, 0)} HARD` : '–'
+  $('#adm-lsu-max-now').textContent = `${nf(desk.lsuMaxValuePerTx, 0)} XRD worth / ${nf(desk.lsuMaxPerTx, 0)} HARD`
+  $('#adm-lsu-day-now').textContent = `${nf(lsuLeftToday(), 0)} of ${nf(desk.lsuDailyLimit, 0)} XRD worth left`
   $('#adm-price-live').textContent = livePrice ? `${nf(livePrice, 6)} XRD` : 'unavailable (use manual override)'
   $('#adm-price-now').textContent = desk.hardPrice ? `${nf(desk.hardPrice, 6)} XRD (updated ${desk.hardPriceUpdatedAt ? new Date(desk.hardPriceUpdatedAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }) : '–'})` : 'not set'
   $('#adm-pool-now').textContent = `${nf(buybackPool)} HARD`
@@ -562,7 +568,7 @@ function renderAdmin() {
     ? pend.map((r) => {
         const xrd = lsuValue.get(r.id) ?? 0
         const pay = payoutFor(xrd)
-        const ok = pay.xrd >= r.minXrdOut && pay.hard >= r.minHardOut && pay.hard <= buybackPool && pay.xrd <= buybackXrd && pay.hard <= desk.lsuMaxPerTx && priceNow() > 0
+        const ok = pay.xrd >= r.minXrdOut && pay.hard >= r.minHardOut && pay.hard <= buybackPool && pay.xrd <= buybackXrd && pay.hard <= desk.lsuMaxPerTx && pay.total <= lsuLeftToday() && priceNow() > 0
         return `<tr><td class="n">#${r.id}<br><small class="rep">Badge ${badgeNo(r.requester)}</small></td>
           <td>${tok(r.lsu, r.lsuAmount)}</td>
           <td class="n">${xrd ? nf(xrd) + ' XRD' : '–'}</td>
@@ -614,22 +620,30 @@ const lsuSettings = (enabled: boolean) => {
   const mRaw = $<HTMLInputElement>('#adm-lsu-max').value
   const payout = dRaw === '' ? desk.lsuPayout : 1 - Number(dRaw) / 100
   const max = mRaw === '' ? desk.lsuMaxPerTx : Number(mRaw)
+  const tRaw = $<HTMLInputElement>('#adm-lsu-txmax').value
+  const yRaw = $<HTMLInputElement>('#adm-lsu-daily').value
+  const txMax = tRaw === '' ? desk.lsuMaxValuePerTx : Number(tRaw)
+  const daily = yRaw === '' ? desk.lsuDailyLimit : Number(yRaw)
+  if (!(txMax > 0 && daily > 0)) return toast('Limits must be above 0.')
   if (!(payout > 0 && payout <= 1)) return toast('Discount must be between 0 and 99%.')
   if (!(max > 0)) return toast('Max per request must be above 0.')
   adminSend(enabled ? 'Open staked XRD quick buy' : 'Close staked XRD quick buy', [
     ['Status', enabled ? 'Open' : 'Closed'],
     ['Sellers receive', `${Math.round(payout * 100)}% of LSU value (−${Math.round((1 - payout) * 100)}%)`],
     ['Paid as', `${Math.round(split * 100)}% XRD + ${Math.round((1 - split) * 100)}% HARD`],
-    ['Max per request', `${nf(max)} HARD`],
+    ['Max per request', `${nf(txMax)} XRD worth · ${nf(max)} HARD`],
+    ['Daily limit', `${nf(daily)} XRD worth per 24h`],
   ], '', () => {
-    const a = M.adminSetLsuBuyback(account!, desk.adminBadge, enabled, String(payout), String(max))
-    return split === desk.lsuXrdShare ? a : a + `\nCALL_METHOD Address("${CONFIG.deskComponent}") "set_lsu_split" Decimal("${split}");`
+    let a = M.adminSetLsuBuyback(account!, desk.adminBadge, enabled, String(payout), String(max))
+    if (split !== desk.lsuXrdShare) a += `\nCALL_METHOD Address("${CONFIG.deskComponent}") "set_lsu_split" Decimal("${split}");`
+    if (txMax !== desk.lsuMaxValuePerTx || daily !== desk.lsuDailyLimit) a += `\nCALL_METHOD Address("${CONFIG.deskComponent}") "set_lsu_limits" Decimal("${txMax}") Decimal("${daily}");`
+    return a
   }, enabled ? 'Settings saved' : 'Staked XRD buying closed')
 }
 $('#adm-lsu-save').addEventListener('click', () => lsuSettings(true))
 $('#adm-lsu-disc').addEventListener('input', () => {
   const d = Number($<HTMLInputElement>('#adm-lsu-disc').value)
-  $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets HARD worth ${nf(100 - d, 2)} XRD.` : 'Enter 0–99.'
+  $('#adm-lsu-disc-hint').textContent = d >= 0 && d < 100 ? `Seller with LSU worth 100 XRD gets XRD + HARD worth ${nf(100 - d, 2)} XRD in total.` : 'Enter 0–99.'
 })
 $('#adm-lsu-off').addEventListener('click', () => lsuSettings(false))
 const poolSettings = (enabled: boolean) => {
@@ -772,6 +786,7 @@ document.addEventListener('click', (e) => {
         const xrd = await getLsuXrdValue(r.lsu, r.lsuAmount).catch(() => lsuValue.get(r.id) ?? 0)
         const pay = payoutFor(xrd, price)
         if (pay.xrd < r.minXrdOut || pay.hard < r.minHardOut) return toast(`Now the seller would get ${payText(pay)}, below their minimum ${payText({ xrd: r.minXrdOut, hard: r.minHardOut })}. Reject the request instead.`)
+        if (pay.total > lsuLeftToday()) return toast(`Daily limit reached: ${nf(lsuLeftToday())} XRD worth left today. Raise the limit or accept tomorrow.`)
         if (pay.xrd > buybackXrd) return toast(`Not enough XRD in the buyback wallet (${nf(buybackXrd)}). Add XRD first.`)
         if (pay.hard > buybackPool) return toast(`Not enough HARD in the buyback wallet (${nf(buybackPool)}). Add HARD first.`)
         adminSend(`Accept request #${r.id}`, [

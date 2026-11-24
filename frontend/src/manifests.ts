@@ -170,5 +170,8 @@ CALL_METHOD Address("${desk()}") "fund_lsu_buyback_xrd" Bucket("xrd");`
 export const adminWithdrawBuybackXrd = (account: string, adminBadge: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "withdraw_buyback_xrd";${depositAll(account)}`
 
+export const adminSetLsuLimits = (account: string, adminBadge: string, perTx: string, daily: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_lsu_limits" Decimal("${perTx}") Decimal("${daily}");`
+
 export const adminSetLsuSplit = (account: string, adminBadge: string, xrdShare: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_lsu_split" Decimal("${xrdShare}");`

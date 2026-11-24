@@ -155,6 +155,7 @@
           <div class="stat"><span>Paid as</span><b id="lsu-split">–</b></div>
           <div class="stat"><span>Available to pay</span><b id="lsu-pool">–</b></div>
           <div class="stat"><span>Max per request</span><b id="lsu-max">–</b></div>
+          <div class="stat"><span>Left to buy today</span><b id="lsu-left">–</b></div>
         </div>
 
         <div class="box">
@@ -312,13 +313,19 @@
         <div class="admin-grid">
           <div class="box">
             <h3>Settings</h3>
-            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Split: <b id="adm-lsu-split-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b></p>
+            <p class="muted">Status: <b id="adm-lsu-status">–</b> · Payout: <b id="adm-lsu-payout-now">–</b> · Split: <b id="adm-lsu-split-now">–</b> · Max/request: <b id="adm-lsu-max-now">–</b> · Today: <b id="adm-lsu-day-now">–</b></p>
             <label class="fld">Discount for sellers (%)
               <input id="adm-lsu-disc" type="number" min="0" max="99" step="0.5" placeholder="e.g. 10 or 15" />
               <small class="hint" id="adm-lsu-disc-hint">Sellers get the LSU value minus this %.</small>
             </label>
             <label class="fld">Paid in XRD (%) · rest in HARD
               <input id="adm-lsu-split" type="number" min="0" max="100" step="1" placeholder="e.g. 80" />
+            </label>
+            <label class="fld">Max per request (XRD worth paid out)
+              <input id="adm-lsu-txmax" type="number" min="0" step="any" placeholder="e.g. 5000" />
+            </label>
+            <label class="fld">Daily limit (XRD worth paid out per 24h)
+              <input id="adm-lsu-daily" type="number" min="0" step="any" placeholder="e.g. 20000" />
             </label>
             <label class="fld">Max HARD per request
               <input id="adm-lsu-max" type="number" min="0" step="any" placeholder="e.g. 500000" />

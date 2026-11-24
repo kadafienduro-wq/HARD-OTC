@@ -177,6 +177,7 @@ mod hard_otc {
             fund_lsu_buyback_xrd => restrict_to: [OWNER];
             withdraw_buyback_xrd => restrict_to: [OWNER];
             set_lsu_split => restrict_to: [OWNER];
+            set_lsu_limits => restrict_to: [OWNER];
             set_pool => restrict_to: [OWNER];
             mint_initial_pool_shares => restrict_to: [OWNER];
             settle_pool => restrict_to: [OWNER];
@@ -242,6 +243,12 @@ mod hard_otc {
         lsu_xrd_share: Decimal,
         /// łącznie XRD wypłacone za LSU
         lsu_xrd_paid: Decimal,
+        /// Limit wartości wypłaty (w XRD) na jedno zgłoszenie.
+        lsu_max_value_per_tx: Decimal,
+        /// Dzienny limit wartości wypłat (w XRD) – okno 24 h.
+        lsu_daily_limit: Decimal,
+        lsu_day_start: i64,
+        lsu_day_used: Decimal,
         /// odkupione LSU (admin wypłaca, odstakowuje, odkupuje HARD)
         lsu_vaults: KeyValueStore<ResourceAddress, Vault>,
         /// łącznie: ile LSU skupiono i ile HARD wydano
@@ -348,6 +355,10 @@ mod hard_otc {
                 buyback_xrd: Vault::new(XRD),
                 lsu_xrd_share: dec!("0.8"),
                 lsu_xrd_paid: Decimal::ZERO,
+                lsu_max_value_per_tx: dec!("5000"),
+                lsu_daily_limit: dec!("20000"),
+                lsu_day_start: 0,
+                lsu_day_used: Decimal::ZERO,
                 lsu_vaults: KeyValueStore::new(),
                 lsu_bought: IndexMap::new(),
                 lsu_hard_paid: Decimal::ZERO,
@@ -672,8 +683,12 @@ mod hard_otc {
             let lsu_resource = lsu.resource_address();
             let lsu_amount = lsu.amount();
             assert!(lsu_amount > Decimal::ZERO, "Nothing to sell");
-            // sprawdza, że to prawdziwe LSU (panic, jeśli nie)
-            let _ = Self::lsu_xrd_value(lsu_resource, lsu_amount);
+            // sprawdza, że to prawdziwe LSU (panic, jeśli nie) i limit na zgłoszenie
+            let value = Self::lsu_xrd_value(lsu_resource, lsu_amount);
+            assert!(
+                value.checked_mul(self.lsu_payout).unwrap() <= self.lsu_max_value_per_tx,
+                "Above the per-request limit"
+            );
 
             let id = self.next_lsu_request_id;
             self.next_lsu_request_id += 1;
@@ -722,6 +737,14 @@ mod hard_otc {
                 .checked_div(self.hard_price_xrd)
                 .unwrap();
             assert!(hard_out <= self.lsu_max_hard_per_tx, "Above the per-request HARD limit");
+            let now = Clock::current_time_rounded_to_seconds().seconds_since_unix_epoch;
+            if now - self.lsu_day_start >= 86_400 {
+                self.lsu_day_start = now;
+                self.lsu_day_used = Decimal::ZERO;
+            }
+            let used = self.lsu_day_used.checked_add(payout_value).unwrap();
+            assert!(used <= self.lsu_daily_limit, "Daily buying limit reached");
+            self.lsu_day_used = used;
             assert!(xrd_out >= req.min_xrd_out, "XRD below the seller's minimum, reject instead");
             assert!(hard_out >= req.min_hard_out, "HARD below the seller's minimum, reject instead");
             assert!(self.buyback_xrd.amount() >= xrd_out, "Not enough XRD in the buyback wallet");
@@ -903,6 +926,13 @@ mod hard_otc {
         }
 
         /// Zasilenie portfela skupu w XRD.
+        /// Limity skupu: maks. wartość (XRD) na zgłoszenie i na 24 h.
+        pub fn set_lsu_limits(&mut self, max_value_per_tx: Decimal, daily_limit: Decimal) {
+            assert!(max_value_per_tx >= Decimal::ZERO && daily_limit >= Decimal::ZERO, "Limits must be >= 0");
+            self.lsu_max_value_per_tx = max_value_per_tx;
+            self.lsu_daily_limit = daily_limit;
+        }
+
         pub fn fund_lsu_buyback_xrd(&mut self, xrd: Bucket) {
             assert!(xrd.resource_address() == XRD, "Not XRD");
             self.buyback_xrd.put(xrd);
