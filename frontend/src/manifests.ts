@@ -159,3 +159,8 @@ export const adminSettlePool = (account: string, adminBadge: string, hard: strin
 CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amount}");
 TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("hard");${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "settle_pool" Bucket("hard") Decimal("${cost}");`
+
+/** Akceptacja z ceną HARD z chwili podpisu: ustawia cenę i akceptuje w jednej transakcji. */
+export const adminAcceptLsuAtPrice = (account: string, adminBadge: string, id: string, xrdPerHard: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_hard_price" Decimal("${xrdPerHard}");
+CALL_METHOD Address("${desk()}") "accept_lsu_sale" ${id}u64;`

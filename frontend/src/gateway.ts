@@ -371,3 +371,13 @@ export async function getBalances(account: string): Promise<{ address: string; a
 }
 
 export const short = (a: string) => (a.length > 20 ? `${a.slice(0, 12)}…${a.slice(-6)}` : a)
+
+/** Aktualna cena HARD w XRD (ile XRD za 1 HARD) z Ociswap. */
+export async function getLiveHardPrice(): Promise<number> {
+  const res = await fetch(CONFIG.hardPriceFeed)
+  if (!res.ok) throw new Error(`Ociswap ${res.status}`)
+  const j = await res.json()
+  const p = Number(j?.price?.xrd?.now)
+  if (!(p > 0)) throw new Error('No price')
+  return p
+}
