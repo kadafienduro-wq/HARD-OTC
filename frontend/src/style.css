@@ -362,3 +362,10 @@ nav .cnt[hidden] { display: none; }
 details.adv { margin: 18px 0; border: 1px solid var(--line); padding: 10px 14px; }
 details.adv summary { cursor: pointer; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; font-size: 12px; }
 details.adv[open] summary { margin-bottom: 12px; }
+
+.test-faucet { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0; padding: 14px 18px; border: 1px dashed #6b5a22; background: rgba(230,196,106,.06); }
+.test-faucet[hidden] { display: none; }
+.test-faucet div { display: flex; flex-direction: column; gap: 3px; }
+.test-faucet span { color: #e6c46a; font-size: 14px; }
+.test-faucet small { color: var(--muted); font-size: 11px; }
+.test-faucet button:disabled { opacity: .5; cursor: default; }

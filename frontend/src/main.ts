@@ -4,7 +4,7 @@ import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
-  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, getFaucetClaimed, getCommunityStats, type LsuRequest,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, getFaucetClaimed, getCommunityStats, getTestFaucet, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -15,6 +15,7 @@ let balances: { address: string; amount: string }[] = []
 let myLocked = 0
 let faucetClaimed = true
 let faucetBal = 0
+let testFaucet: Awaited<ReturnType<typeof getTestFaucet>> | null = null
 let myUnlock = { amount: 0, readyAt: 0 }
 let treasuryHard = 0
 let treasuryAll: { address: string; amount: number }[] = []
@@ -157,7 +158,7 @@ function manifestProblem(m: string): string {
     if (!/^#\d{1,19}#$/.test(id)) return `Invalid badge id: ${id}`
   if (/\b(CALL_FUNCTION|BURN_RESOURCE|SET_METADATA|LOCK_|ALLOCATE_|PUBLISH_PACKAGE)\b/.test(m)) return 'Unexpected instruction'
   for (const [, c] of m.matchAll(/CALL_METHOD\s+Address\("([^"]*)"\)/g))
-    if (c !== CONFIG.deskComponent && c !== account) return `Unexpected component: ${c}`
+    if (c !== CONFIG.deskComponent && c !== account && c !== CONFIG.testFaucet) return `Unexpected component: ${c}`
   return ''
 }
 
@@ -215,6 +216,7 @@ async function refreshAll() {
       getTreasuryBalance(CONFIG.hardResource).catch(() => 0),
     ])
     livePrice = await getLiveHardPrice().catch(() => 0)
+    testFaucet = CONFIG.testFaucet && account ? await getTestFaucet(account).catch(() => null) : null
     ;[faucetClaimed, faucetBal] = await Promise.all([
       myRider() && desk.faucetAmount > 0 ? getFaucetClaimed(myRider()).catch(() => true) : Promise.resolve(true),
       desk.faucetVault ? getVaultAmount(desk.faucetVault).catch(() => 0) : Promise.resolve(0),
@@ -281,7 +283,8 @@ function renderOnboarding() {
   $('#ob-3-text').textContent = desk.listingFee
     ? `Creating an offer costs ${nf(desk.listingFee)} HARD.${s1 ? ` You have ${nf(hard)} HARD.` : ''} Buying only costs the trading fee.`
     : 'Listing is free right now. Buying only costs the trading fee.'
-  const canFaucet = s2 && desk.faucetAmount > 0 && !faucetClaimed && faucetBal >= desk.faucetAmount
+  const canFaucet = !CONFIG.testFaucet && s2 && desk.faucetAmount > 0 && !faucetClaimed && faucetBal >= desk.faucetAmount
+  renderTestFaucet()
   $('#ob-faucet').hidden = !canFaucet
   if (canFaucet) $('#ob-3').classList.remove('done')
   $('#ob-faucet').textContent = `Get ${nf(desk.faucetAmount)} ${CONFIG.testnet ? 'test ' : ''}HARD`
@@ -952,6 +955,23 @@ const mint = () =>
     'The badge is your identity on the desk. Keep it in your wallet.',
     () => account && send(M.mintRiderBadge(account), 'HARD OTC Badge minted'))
 $('#ob-mint').addEventListener('click', mint)
+/** Pasek "Test tokens" (tylko testnet): odbiór co godzinę. */
+function renderTestFaucet() {
+  const bar = $('#test-faucet')
+  bar.hidden = !CONFIG.testnet || !CONFIG.testFaucet || !account
+  if (bar.hidden || !testFaucet) return
+  const list = testFaucet.tokens.map((t) => `${nf(t.amount)} ${esc(sym(t.resource))}`)
+  if (testFaucet.hardAmount > 0 && testFaucet.hardLeft >= testFaucet.hardAmount) list.unshift(`${nf(testFaucet.hardAmount)} HARD`)
+  $('#tf-list').textContent = list.join(' · ')
+  const wait = testFaucet.nextAt - Date.now()
+  const btn = $<HTMLButtonElement>('#tf-btn')
+  btn.disabled = wait > 0
+  btn.textContent = wait > 0 ? `Next in ${Math.ceil(wait / 60000)} min` : 'Get test tokens'
+}
+$('#tf-btn').addEventListener('click', () => {
+  if (!account) return toast('Connect your Radix Wallet first.')
+  send(M.claimTestTokens(account), 'Test tokens received')
+})
 $('#ob-faucet').addEventListener('click', () =>
   confirmAction(`Get ${nf(desk.faucetAmount)} HARD`, [['You receive', `${nf(desk.faucetAmount)} HARD`], ['Limit', 'once per badge']], CONFIG.testnet ? 'Test HARD for trying the desk. It has no value.' : '',
     () => account && send(M.claimFaucet(account, myRider()), `${nf(desk.faucetAmount)} HARD received`)))

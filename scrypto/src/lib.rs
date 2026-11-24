@@ -26,6 +26,8 @@
 
 use scrypto::prelude::*;
 
+pub mod test_faucet;
+
 /// HARD OTC Badge: numerowany (#1, #2, …) badge tożsamości na desku.
 #[derive(ScryptoSbor, NonFungibleData)]
 pub struct RiderBadge {

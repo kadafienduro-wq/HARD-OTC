@@ -11,6 +11,7 @@ struct User {
 
 struct Env {
     ledger: DefaultLedgerSimulator,
+    package: PackageAddress,
     desk: ComponentAddress,
     hard: ResourceAddress,
     admin_badge: ResourceAddress,
@@ -108,7 +109,7 @@ impl Env {
             );
             r.expect_commit_success();
         }
-        Env { ledger, desk, hard, admin_badge, rider_badge, admin, alice, bob }
+        Env { ledger, package, desk, hard, admin_badge, rider_badge, admin, alice, bob }
     }
 
     fn bal(&mut self, account: ComponentAddress, res: ResourceAddress) -> Decimal {
@@ -647,4 +648,56 @@ fn ponowne_odblokowanie_nie_zeruje_gotowego_hard() {
     e.rider_call_noarg(&alice, "withdraw_unlocked").expect_commit_success();
     assert_eq!(e.bal(alice.account, e.hard), h0 + dec!("500"));
     unlock(&mut e, dec!("500")).expect_commit_success();
+}
+
+
+#[test]
+fn kranik_testowy_wiele_walut_co_godzine() {
+    let mut e = Env::new();
+    let (admin, alice) = (admin_of(&e), alice_of(&e));
+    let r = e.ledger.execute_manifest(
+        ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .call_function(e.package, "TestFaucet", "instantiate", manifest_args!(e.hard, e.admin_badge))
+            .build(),
+        vec![],
+    );
+    let commit = r.expect_commit_success();
+    let faucet = commit.new_component_addresses()[0];
+    let tokens = commit.new_resource_addresses().clone();
+    assert_eq!(tokens.len(), 4);
+    // admin zasila testowy HARD
+    let hard = e.hard;
+    let m = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .create_proof_from_account_of_amount(admin.account, e.admin_badge, dec!("1"))
+        .withdraw_from_account(admin.account, hard, dec!("10000"))
+        .take_all_from_worktop(hard, "h")
+        .call_method_with_name_lookup(faucet, "fund_hard", |l| (l.bucket("h"),))
+        .build();
+    e.ledger.execute_manifest(m, signer(&admin)).expect_commit_success();
+    let claim = |e: &mut Env| {
+        let m = ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .call_method(faucet, "claim", manifest_args!(alice.account))
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
+            .build();
+        e.ledger.execute_manifest(m, signer(&alice))
+    };
+    let h0 = e.bal(alice.account, hard);
+    claim(&mut e).expect_commit_success();
+    assert_eq!(e.bal(alice.account, tokens[0]), dec!("1000"));
+    assert_eq!(e.bal(alice.account, hard), h0 + dec!("2000"));
+    failed_with(&claim(&mut e), "Come back later");
+    let now_ms = e.ledger.get_current_proposer_timestamp_ms();
+    e.ledger.advance_to_round_at_timestamp(Round::of(100), now_ms + 3601 * 1000);
+    claim(&mut e).expect_commit_success();
+    assert_eq!(e.bal(alice.account, tokens[0]), dec!("2000"));
+    // tylko admin zarządza
+    let m = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .call_method(faucet, "withdraw_hard", manifest_args!())
+        .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
+        .build();
+    assert!(!e.ledger.execute_manifest(m, signer(&alice)).is_commit_success());
 }
