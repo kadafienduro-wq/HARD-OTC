@@ -441,3 +441,25 @@ export async function getLiveHardPrice(): Promise<number> {
   hardPriceInfo.h24 = Number(j?.price?.xrd?.['24h'] ?? 0)
   return p
 }
+
+
+/** Ilu różnych portfeli dołączyło (ma badge) i ile badge'y wybito. Liczone z blockchaina, cache 5 min. */
+let communityCache: { at: number; badges: number; wallets: number } | null = null
+export async function getCommunityStats(): Promise<{ badges: number; wallets: number }> {
+  if (communityCache && Date.now() - communityCache.at < 300_000) return communityCache
+  const res = CONFIG.riderBadgeResource
+  if (!res) return { badges: 0, wallets: 0 }
+  const r = await post('/state/entity/details', { addresses: [res] })
+  const badges = Number(r.items?.[0]?.details?.total_supply ?? 0)
+  const owners = new Set<string>()
+  for (let start = 1; start <= badges; start += 100) {
+    const ids = Array.from({ length: Math.min(100, badges - start + 1) }, (_, i) => `#${start + i}#`)
+    const loc = await post('/state/non-fungible/location', { resource_address: res, non_fungible_ids: ids })
+    for (const it of loc.non_fungible_ids ?? []) {
+      const owner = it.owning_vault_global_ancestor_address
+      if (owner && !it.is_burned) owners.add(owner)
+    }
+  }
+  communityCache = { at: Date.now(), badges, wallets: owners.size }
+  return communityCache
+}

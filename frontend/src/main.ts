@@ -4,7 +4,7 @@ import * as M from './manifests'
 import {
   desk, getBalances, getLocked, getUnlock, getOffers, getRiderBadges, getRiderStats, getTokens, getTreasuryBalance,
   getVaultAmount, loadDeskInfo, multiplierFor, short, tokenInfo, type OfferView, type RiderStats,
-  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, getFaucetClaimed, type LsuRequest,
+  getLsuRequests, getLsuXrdValue, getLsuHoldings, getSupply, getLiveHardPrice, hardPriceInfo, getFaucetClaimed, getCommunityStats, type LsuRequest,
 } from './gateway'
 
 // ---------- State ----------
@@ -263,6 +263,7 @@ function render() {
   renderPool()
   renderTreasury()
   renderAdmin()
+  renderCommunity()
   if (($('#create-dialog') as HTMLDialogElement).open) updateCreateSummary()
 }
 
@@ -611,6 +612,14 @@ $('#pool-wd-btn').addEventListener('click', () => {
 })
 
 // ---------- Treasury ----------
+async function renderCommunity() {
+  try {
+    const c = await getCommunityStats()
+    $('#cm-wallets').textContent = nf(c.wallets, 0)
+    $('#cm-badges').textContent = nf(c.badges, 0)
+  } catch { /* statystyki są tylko dodatkiem */ }
+  $('#cm-offers').textContent = nf(offers.length ? Math.max(...offers.map((o) => Number(o.id))) : 0, 0)
+}
 function renderTreasury() {
   const spent = Number(desk.treasuryWithdrawn.find((w) => w.address === CONFIG.hardResource)?.amount ?? 0)
   $('#bb-listing').textContent = `${nf(desk.listingFeesHard + desk.promotionFeesHard + desk.reservationFeesHard, 2)} HARD`
