@@ -12,8 +12,8 @@ const NETWORKS = {
     dAppDefinitionAddress: 'account_tdx_2_129j3eukj5fyylr8l7ehg7ug377hzpvnfywvv0k3dxqn9tzn84lmvzp',
     // Pod #stary: poprzedni desk, żeby odebrać tokeny ze starych ofert.
     deskComponent: old
-      ? 'component_tdx_2_1cz60lwtsd9sujz80hyzxlxz02062aypgml028fhf3u8a5zxsy3gauf'
-      : 'component_tdx_2_1crz0prs9pvty3d2s8w9rf6vn7v3m4zzacfp5hxpklsj537vvjafsft',
+      ? 'component_tdx_2_1crz0prs9pvty3d2s8w9rf6vn7v3m4zzacfp5hxpklsj537vvjafsft'
+      : 'component_tdx_2_1cr8uef5n7vmar78mumlxhrv5luj6kyjt9e4lm7ym2et7aenn5deq87',
     gatewayUrl: 'https://stokenet.radixdlt.com',
     xrd: 'resource_tdx_2_1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxtfd2jc',
     explorerUrl: 'https://stokenet-dashboard.radixdlt.com',
