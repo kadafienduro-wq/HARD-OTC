@@ -107,8 +107,8 @@ To run them locally:
 
 | | Address |
 |---|---|
-| Current desk (v7, v8 pending deploy) | `component_tdx_2_1cr8uef5n7vmar78mumlxhrv5luj6kyjt9e4lm7ym2et7aenn5deq87` |
-| Package (v7) | `package_tdx_2_1p56r5nuh75qjq0qwfh76se4auphlppm8t2me3kzdhkn3865utew0x4` |
+| Current desk (v8) | `component_tdx_2_1cqzf2t5mnpc95d4zln4xxxhqhl75c0vnyud7s0rrns498fehdgxmp3` |
+| Package (v8) | `package_tdx_2_1pkzf0kg4gnv7tp77nrfjs26n6dka3hpumhz07ryfelv6przfskh5aw` |
 | Test HARD | `resource_tdx_2_1t4x3apc4tre2ynjjl2qg5ctzvfaft48xlcxp52a36qy7s9d6yxhgtn` |
 | Front-end | https://kadafienduro-wq.github.io/HARD-OTC/ |
 
