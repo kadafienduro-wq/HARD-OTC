@@ -14,6 +14,9 @@ export const CONFIG = {
   knownResources: [
     { symbol: 'XRD', address: 'resource_tdx_2_1tknxxxxxxxxxradxrdxxxxxxxxx009923554798xxxxxxxxxtfd2jc' },
   ] as { symbol: string; address: string }[],
+  // Aktualna cena HARD (XRD za 1 HARD) z Ociswap. Na Stokenet testowy HARD nie ma rynku,
+  // więc używamy ceny prawdziwego HARD z mainnetu.
+  hardPriceFeed: 'https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn',
   feePerSide: 0.0075,
   hardLockForDiscount: 1000,
 }
