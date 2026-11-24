@@ -348,7 +348,8 @@ function renderLock() {
 // ---------- Treasury ----------
 function renderTreasury() {
   const spent = Number(desk.treasuryWithdrawn.find((w) => w.address === CONFIG.hardResource)?.amount ?? 0)
-  $('#bb-listing').textContent = `${nf(desk.listingFeesHard + desk.promotionFeesHard, 2)} HARD`
+  $('#bb-listing').textContent = `${nf(desk.listingFeesHard + desk.promotionFeesHard + desk.reservationFeesHard, 2)} HARD`
+  $('#res-fee').textContent = desk.v3 ? (desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'Free') : '–'
   $('#bb-ready').textContent = `${nf(treasuryHard, 2)} HARD`
   $('#bb-spent').textContent = `${nf(spent, 2)} HARD`
   $('#burned').textContent = `${nf(burned)} HARD`
@@ -372,6 +373,7 @@ function renderAdmin() {
     return
   }
   $('#adm-fee-now').textContent = desk.listingFee ? `${nf(desk.listingFee)} HARD` : 'free'
+  $('#adm-res-now').textContent = desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'
   $('#adm-promo-now').textContent = desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'
   $('#adm-unlock-now').textContent = periodText(desk.unlockPeriod)
   $('#adm-burn-now').textContent = desk.burnShare > 0 ? `${Math.round(desk.burnShare * 100)}%` : 'off'
@@ -404,6 +406,13 @@ $('#adm-promo-btn').addEventListener('click', () => {
   if (raw === '' || !(v >= 0)) return toast('Enter the promotion fee in HARD.')
   adminSend('Change promotion fee', [['Now', desk.promotionFee ? `${nf(desk.promotionFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD per 24h` : 'free']], '',
     () => M.adminSetPromotionFee(account!, desk.adminBadge, String(v)), `Promotion fee set to ${nf(v)} HARD`)
+})
+$('#adm-res-btn').addEventListener('click', () => {
+  const raw = $<HTMLInputElement>('#adm-res').value
+  const v = Number(raw)
+  if (raw === '' || !(v >= 0)) return toast('Enter the reservation fee in HARD.')
+  adminSend('Change reservation fee', [['Now', desk.reservationFee ? `${nf(desk.reservationFee)} HARD` : 'free'], ['New', v ? `${nf(v)} HARD` : 'free']], 'Charged on top of the listing fee when an offer is reserved for a badge number.',
+    () => M.adminSetReservationFee(account!, desk.adminBadge, String(v)), `Reservation fee set to ${nf(v)} HARD`)
 })
 $('#adm-verify-btn').addEventListener('click', () => {
   const addr = $<HTMLInputElement>('#adm-verify').value.trim()
@@ -643,6 +652,9 @@ function readForm() {
   }
 }
 
+const resFee = (v: { reserved: string }) => (v.reserved && desk.v3 ? desk.reservationFee : 0)
+const totalFees = (v: { reserved: string }) => desk.listingFee + resFee(v)
+
 function validate(v: ReturnType<typeof readForm>): string {
   const hard = balanceOf(CONFIG.hardResource)
   if (!v.sell.startsWith('resource_')) return mode() === 'sell' ? 'Choose the token you sell.' : 'Choose the token you pay with.'
@@ -650,8 +662,9 @@ function validate(v: ReturnType<typeof readForm>): string {
   if (v.ask === v.sell) return 'The two tokens must be different.'
   if (!(v.sellAmount > 0) || !(v.askAmount > 0)) return 'Enter both amounts.'
   if (v.sellAmount > balanceOf(v.sell)) return `You only have ${nf(balanceOf(v.sell))} ${sym(v.sell)}.`
-  const needHard = desk.listingFee + (v.sell === CONFIG.hardResource ? v.sellAmount : 0)
-  if (desk.listingFee && hard < needHard) return `You need ${nf(needHard)} HARD (listing fee${v.sell === CONFIG.hardResource ? ' + amount locked' : ''}), you have ${nf(hard)}.`
+  const fees = totalFees(v)
+  const needHard = fees + (v.sell === CONFIG.hardResource ? v.sellAmount : 0)
+  if (fees && hard < needHard) return `You need ${nf(needHard)} HARD (fees${v.sell === CONFIG.hardResource ? ' + amount locked' : ''}), you have ${nf(hard)}.`
   if (v.reserved && (!desk.tiers.length || myLocked < desk.tiers[0].threshold)) return `Reserved offers need at least ${nf(desk.tiers[0]?.threshold ?? 1000)} HARD locked.`
   return ''
 }
@@ -673,6 +686,7 @@ function updateCreateSummary() {
   $('#create-summary').innerHTML = `
     <div class="sline"><span>Locked in escrow now</span><b>${v.sellAmount ? nf(v.sellAmount) : '–'} ${ok(v.sell) ? esc(symV(v.sell)) : ''}</b></div>
     <div class="sline"><span>Listing fee (non-refundable)</span><b>${desk.listingFee ? nf(desk.listingFee) + ' HARD' : 'Free'}</b></div>
+    ${v.reserved ? `<div class="sline"><span>Reservation fee (non-refundable)</span><b>${resFee(v) ? nf(resFee(v)) + ' HARD' : 'Free'}</b></div>` : ''}
     <div class="sline"><span>When completed, you receive</span><b>${v.askAmount ? nf(v.askAmount - myFee) : '–'} ${ok(v.ask) ? esc(symV(v.ask)) : ''}</b></div>
     <div class="sline sub"><span>Your trading fee (${(feeRate(myLocked) * 100).toFixed(2)}%)</span><b>${v.askAmount ? nf(myFee) : '–'}</b></div>
     <div class="sline sub"><span>Partial fills</span><b>${v.partial ? 'allowed' : 'all at once only'}</b></div>`
@@ -713,7 +727,7 @@ form.addEventListener('submit', (e) => {
       askResource: v.ask, askAmount: String(v.askAmount),
       expiryHours: v.expiry,
       reservedBuyer: v.reserved || undefined,
-      listingFee: desk.listingFee > 0 ? String(desk.listingFee) : undefined,
+      listingFee: totalFees(v) > 0 ? String(totalFees(v)) : undefined,
       v2: desk.v2,
       v3: desk.v3,
       allowPartial: v.partial,

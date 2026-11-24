@@ -137,7 +137,7 @@
         <h2>Desk treasury</h2>
         <p class="muted">Listing fees (paid in HARD) and trading fees go to the desk treasury. Treasury funds are used to buy back HARD and add liquidity to the HARD pool.</p>
         <div class="buyback">
-          <div class="bb-main"><span>HARD earned from listings &amp; promotions</span><b id="bb-listing">–</b></div>
+          <div class="bb-main"><span>HARD earned from listing, reservation &amp; promotion fees</span><b id="bb-listing">–</b></div>
           <div class="bb-flow">
             <div><span>Ready for buyback now</span><b id="bb-ready">–</b></div>
             <div><span>Already spent on buyback &amp; liquidity</span><b id="bb-spent">–</b></div>
@@ -145,6 +145,7 @@
         </div>
         <div class="stats">
           <div class="stat"><span>Listing fee</span><b id="listing-fee">–</b></div>
+          <div class="stat"><span>Reservation fee</span><b id="res-fee">–</b></div>
           <div class="stat"><span>Promotion (24h)</span><b id="promo-fee">–</b></div>
           <div class="stat"><span>Trading fee</span><b id="trading-fee">–</b></div>
           <div class="stat"><span>HARD burn</span><b id="burn-share">–</b></div>
@@ -171,7 +172,7 @@
           <li><b>Verified tokens (✓).</b> Anyone can create a token with any name. ✓ means HARD ADV checked the address. Be careful with unverified tokens.</li>
           <li><b>Promotion.</b> Sellers can pay HARD to pin their offer with ★ at the top for 24 hours. Fees go to the treasury.</li>
           <li><b>Reputation.</b> Each HARD OTC Badge counts completed sales and purchases, shown next to every offer.</li>
-          <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
+          <li><b>Reserved offers.</b> Holders with at least 1,000 HARD locked can pay an extra reservation fee in HARD to reserve an offer for a specific HARD OTC Badge number. Everyone can see it; only that badge holder can buy it.</li>
         </ol>
         <p class="muted">Terms of every offer are public on the Radix ledger. This is an experimental testnet application.</p>
       </section>
@@ -208,6 +209,15 @@
             <div class="inline">
               <input id="adm-burn" type="number" min="0" max="100" step="1" placeholder="0–100 %" />
               <button id="adm-burn-btn" class="primary">Save</button>
+            </div>
+          </div>
+
+          <div class="box">
+            <h3>Reservation fee</h3>
+            <p class="muted">Extra HARD paid (on top of the listing fee) to reserve an offer for one badge number. Current: <b id="adm-res-now">–</b></p>
+            <div class="inline">
+              <input id="adm-res" type="number" min="0" step="any" placeholder="HARD" />
+              <button id="adm-res-btn" class="primary">Save</button>
             </div>
           </div>
 
@@ -295,7 +305,7 @@
         <details class="adv">
           <summary>Reserve for a specific buyer (optional)</summary>
           <input name="reserved" id="reserved" placeholder="Buyer's badge number, e.g. 12" />
-          <small class="hint" id="reserved-note">Requires at least 1,000 HARD locked. Leave empty for a public offer.</small>
+          <small class="hint" id="reserved-note">Requires at least 1,000 HARD locked and an extra reservation fee in HARD. Leave empty for a public offer.</small>
         </details>
 
         <div class="summary" id="create-summary"></div>

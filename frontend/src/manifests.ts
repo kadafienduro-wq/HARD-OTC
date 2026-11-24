@@ -102,3 +102,6 @@ CALL_METHOD Address("${desk()}") "add_verified" Array<Address>(${resources.map((
 
 export const adminRemoveVerified = (account: string, adminBadge: string, resource: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "remove_verified" Address("${resource}");`
+
+export const adminSetReservationFee = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_reservation_fee" Decimal("${amount}");`

@@ -7,6 +7,7 @@
 //! 3. Kupujący płaci (`accept_offer`) całość albo część (jeśli oferta pozwala) — atomowo.
 //! 4. Opłata od transakcji 0,75% z każdej strony; progi rabatowe za lock HARD (−20/−40/−60%).
 //! 5. Opłaty -> skarbiec (buyback HARD / płynność). Spalanie opcjonalne (admin, domyślnie 0%).
+//! 6a. Rezerwacja oferty dla konkretnego badge'a: dodatkowa opłata w HARD (domyślnie 50, ustawia admin).
 //! 6. Promowanie oferty za HARD (★ na 24 h, opłata ustawiana przez admina).
 //! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
 //! 8. Reputacja: liczniki transakcji ridera (sprzedaże, zakupy).
@@ -126,6 +127,7 @@ mod hard_otc {
             set_listing_fee => restrict_to: [OWNER];
             set_unlock_period => restrict_to: [OWNER];
             set_promotion_fee => restrict_to: [OWNER];
+            set_reservation_fee => restrict_to: [OWNER];
             add_verified => restrict_to: [OWNER];
             remove_verified => restrict_to: [OWNER];
         }
@@ -147,6 +149,10 @@ mod hard_otc {
         listing_fee_hard: Decimal,
         /// opłata w HARD za promowanie oferty na 24 h
         promotion_fee_hard: Decimal,
+        /// dodatkowa opłata w HARD za rezerwację oferty dla konkretnego badge'a
+        reservation_fee_hard: Decimal,
+        /// łącznie HARD z opłat za rezerwację
+        reservation_fees_hard: Decimal,
         /// łącznie HARD z promowania ofert
         promotion_fees_hard: Decimal,
         /// tokeny zweryfikowane przez admina
@@ -215,6 +221,8 @@ mod hard_otc {
                 hard_burn_share: Decimal::ZERO,
                 listing_fee_hard: dec!("100"),
                 promotion_fee_hard: dec!("200"),
+                reservation_fee_hard: dec!("50"),
+                reservation_fees_hard: Decimal::ZERO,
                 promotion_fees_hard: Decimal::ZERO,
                 verified: vec![XRD, hard_resource],
                 rider_stats: KeyValueStore::new(),
@@ -296,9 +304,18 @@ mod hard_otc {
             assert!(!self.paused, "Desk is paused");
             let seller = self.check_rider(rider);
 
-            // Opłata za ogłoszenie w HARD -> skarbiec. Reszta wraca do sprzedającego.
+            // Opłata za ogłoszenie (+ ewentualnie za rezerwację) w HARD -> skarbiec. Reszta wraca.
             assert!(listing_fee.resource_address() == self.hard_resource, "Listing fee must be paid in HARD");
-            assert!(listing_fee.amount() >= self.listing_fee_hard, "Listing fee too small");
+            let reservation_fee = if reserved_buyer.is_some() { self.reservation_fee_hard } else { Decimal::ZERO };
+            assert!(
+                listing_fee.amount() >= self.listing_fee_hard.checked_add(reservation_fee).unwrap(),
+                "Listing fee too small"
+            );
+            if reservation_fee > Decimal::ZERO {
+                let fee = listing_fee.take(reservation_fee);
+                self.reservation_fees_hard = self.reservation_fees_hard.checked_add(fee.amount()).unwrap();
+                self.collect_fee(fee);
+            }
             if self.listing_fee_hard > Decimal::ZERO {
                 let fee = listing_fee.take(self.listing_fee_hard);
                 self.listing_fees_hard = self.listing_fees_hard.checked_add(fee.amount()).unwrap();
@@ -605,6 +622,12 @@ mod hard_otc {
         pub fn set_promotion_fee(&mut self, amount: Decimal) {
             assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
             self.promotion_fee_hard = amount;
+        }
+
+        /// Dodatkowa opłata w HARD za rezerwację oferty (0 = bez opłaty).
+        pub fn set_reservation_fee(&mut self, amount: Decimal) {
+            assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
+            self.reservation_fee_hard = amount;
         }
 
         /// Dodaje tokeny do listy zweryfikowanych.

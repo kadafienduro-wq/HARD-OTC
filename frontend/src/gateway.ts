@@ -82,10 +82,12 @@ export type DeskInfo = {
   verified: string[]
   promotionFee: number
   promotionFeesHard: number
+  reservationFee: number
+  reservationFeesHard: number
   riderStatsKvs: string
   v3: boolean
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, riderStatsKvs: '', v3: false }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -112,6 +114,8 @@ export async function loadDeskInfo() {
     verified: state.verified ?? [],
     promotionFee: Number(state.promotion_fee_hard ?? 0),
     promotionFeesHard: Number(state.promotion_fees_hard ?? 0),
+    reservationFee: Number(state.reservation_fee_hard ?? 0),
+    reservationFeesHard: Number(state.reservation_fees_hard ?? 0),
     riderStatsKvs: state.rider_stats ?? '',
     v3: state.promotion_fee_hard !== undefined,
   }
