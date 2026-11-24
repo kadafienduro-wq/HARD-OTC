@@ -181,3 +181,17 @@ CALL_METHOD Address("${desk()}") "set_lsu_split" Decimal("${xrdShare}");`
 
 export const adminSetTradingFee = (account: string, adminBadge: string, rate: string) => `${adminProof(account, adminBadge)}
 CALL_METHOD Address("${desk()}") "set_trading_fee" Decimal("${rate}");`
+
+export const claimFaucet = (account: string, riderId: string) => `${riderProof(account, riderId)}
+CALL_METHOD Address("${desk()}") "claim_faucet" Proof("rider");${depositAll(account)}`
+
+export const adminFundFaucet = (account: string, adminBadge: string, hard: string, amount: string) => `
+CALL_METHOD Address("${account}") "withdraw" Address("${hard}") Decimal("${amount}");
+TAKE_ALL_FROM_WORKTOP Address("${hard}") Bucket("h");${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "fund_faucet" Bucket("h");`
+
+export const adminSetFaucetAmount = (account: string, adminBadge: string, amount: string) => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "set_faucet_amount" Decimal("${amount}");`
+
+export const adminWithdrawFaucet = (account: string, adminBadge: string, amount = '0') => `${adminProof(account, adminBadge)}
+CALL_METHOD Address("${desk()}") "withdraw_faucet" Decimal("${amount}");${depositAll(account)}`

@@ -110,8 +110,12 @@ export type DeskInfo = {
   lsuDayStart: number
   lsuDayUsed: number
   version: number
+  faucetVault: string
+  faucetAmount: number
+  faucetClaimedKvs: string
+  faucetGiven: number
 }
-export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0, version: 0 }
+export let desk: DeskInfo = { tiers: [], feePerSide: 0.0075, burnShare: 0, listingFee: 0, v2: false, feesCollected: [], burnedVault: '', hardLocksKvs: '', unlockingKvs: '', unlockReadyKvs: '', unlockPeriod: 0, listingFeesHard: 0, treasuryWithdrawn: [], treasuryKvs: '', adminBadge: '', paused: false, verified: [], promotionFee: 0, promotionFeesHard: 0, reservationFee: 0, reservationFeesHard: 0, riderStatsKvs: '', v3: false, lsuEnabled: false, lsuPayout: 0, hardPrice: 0, hardPriceUpdatedAt: 0, lsuMaxPerTx: 0, buybackVault: '', lsuRequestsKvs: '', lsuVaultsKvs: '', nextLsuId: 1, lsuBought: [], lsuHardPaid: 0, poolEnabled: false, poolShare: '', poolOutstanding: 0, poolPlatformShare: 0, poolProfitTotal: 0, buybackXrdVault: '', lsuXrdShare: 0, lsuXrdPaid: 0, lsuMaxValuePerTx: 0, lsuDailyLimit: 0, lsuDayStart: 0, lsuDayUsed: 0, version: 0, faucetVault: '', faucetAmount: 0, faucetClaimedKvs: '', faucetGiven: 0 }
 
 export async function loadDeskInfo() {
   const r = await post('/state/entity/details', { addresses: [CONFIG.deskComponent] })
@@ -166,6 +170,10 @@ export async function loadDeskInfo() {
     lsuDayStart: Number(state.lsu_day_start ?? 0) * 1000,
     lsuDayUsed: Number(state.lsu_day_used ?? 0),
     version: Number(state.version ?? 4),
+    faucetVault: state.faucet ?? '',
+    faucetAmount: Number(state.faucet_amount ?? 0),
+    faucetClaimedKvs: state.faucet_claimed ?? '',
+    faucetGiven: Number(state.faucet_given ?? 0),
   }
   // Stary desk (v1) miał jeden próg
   if (!desk.tiers.length && state.hard_discount_threshold) {
@@ -188,6 +196,16 @@ export async function getLocked(riderId: string): Promise<number> {
   })
   const vault = data.entries?.[0]?.value?.programmatic_json?.value
   return vault ? getVaultAmount(vault) : 0
+}
+
+/** Czy ten badge już odebrał HARD z kranika. */
+export async function getFaucetClaimed(riderId: string): Promise<boolean> {
+  if (!desk.faucetClaimedKvs || !riderId) return false
+  const data = await post('/state/key-value-store/data', {
+    key_value_store_address: desk.faucetClaimedKvs,
+    keys: [{ key_json: { kind: 'NonFungibleLocalId', value: riderId } }],
+  })
+  return (data.entries ?? []).length > 0
 }
 
 /** HARD w trakcie wypłaty i od kiedy można je odebrać (ms). */
@@ -422,4 +440,26 @@ export async function getLiveHardPrice(): Promise<number> {
   hardPriceInfo.h1 = Number(j?.price?.xrd?.['1h'] ?? 0)
   hardPriceInfo.h24 = Number(j?.price?.xrd?.['24h'] ?? 0)
   return p
+}
+
+
+/** Ilu różnych portfeli dołączyło (ma badge) i ile badge'y wybito. Liczone z blockchaina, cache 5 min. */
+let communityCache: { at: number; badges: number; wallets: number } | null = null
+export async function getCommunityStats(): Promise<{ badges: number; wallets: number }> {
+  if (communityCache && Date.now() - communityCache.at < 300_000) return communityCache
+  const res = CONFIG.riderBadgeResource
+  if (!res) return { badges: 0, wallets: 0 }
+  const r = await post('/state/entity/details', { addresses: [res] })
+  const badges = Number(r.items?.[0]?.details?.total_supply ?? 0)
+  const owners = new Set<string>()
+  for (let start = 1; start <= badges; start += 100) {
+    const ids = Array.from({ length: Math.min(100, badges - start + 1) }, (_, i) => `#${start + i}#`)
+    const loc = await post('/state/non-fungible/location', { resource_address: res, non_fungible_ids: ids })
+    for (const it of loc.non_fungible_ids ?? []) {
+      const owner = it.owning_vault_global_ancestor_address
+      if (owner && !it.is_burned) owners.add(owner)
+    }
+  }
+  communityCache = { at: Date.now(), badges, wallets: owners.size }
+  return communityCache
 }

@@ -48,7 +48,7 @@
     <section class="onboard" id="onboard">
       <div class="ob-step" id="ob-1">
         <span class="ob-num">1</span>
-        <div><b>Connect your Radix Wallet</b><small>Use the Connect button in the top right. Your wallet must be on <span class="net-name">Stokenet</span>.</small></div>
+        <div><b>Connect your Radix Wallet</b><small>Use the Connect button in the top right. Your wallet must be on <span class="net-name">Stokenet</span>.</small><small class="testnet-only" id="ob-testnet-help">First time on the testnet? In Radix Wallet: Settings → Preferences → turn on <strong>Developer Mode</strong>, then Gateways → <strong>Stokenet</strong>. Free test XRD: open your account → ⋯ → Dev Preferences → <strong>Get XRD Test Tokens</strong>.</small></div>
       </div>
       <div class="ob-step" id="ob-2">
         <span class="ob-num">2</span>
@@ -58,6 +58,7 @@
       <div class="ob-step" id="ob-3">
         <span class="ob-num">3</span>
         <div><b>Hold HARD for the listing fee</b><small id="ob-3-text">Creating an offer costs HARD. Buying is free (only the trading fee).</small></div>
+        <button class="primary small" id="ob-faucet" hidden>Get test HARD</button>
       </div>
     </section>
 
@@ -198,6 +199,11 @@
           </div>
         </div>
         <div class="stats">
+          <div class="stat"><span>Wallets that joined</span><b id="cm-wallets">–</b></div>
+          <div class="stat"><span>Badges minted</span><b id="cm-badges">–</b></div>
+          <div class="stat"><span>Offers created</span><b id="cm-offers">–</b></div>
+        </div>
+        <div class="stats">
           <div class="stat"><span>Listing fee</span><b id="listing-fee">–</b></div>
           <div class="stat"><span>Reservation / 24h</span><b id="res-fee">–</b></div>
           <div class="stat"><span>Featuring ★ / 24h</span><b id="promo-fee">–</b></div>
@@ -241,6 +247,19 @@
         <p class="muted">Visible only to the wallet holding the HARD OTC Admin badge. Every change is a transaction you sign in your Radix Wallet; the smart contract rejects it without the badge.</p>
 
         <div class="admin-grid">
+          <div class="box" id="adm-faucet-box">
+            <h3>HARD faucet</h3>
+            <p class="muted">Each badge can claim this amount once (for testers or promotions). 0 = off. Now: <b id="adm-faucet-now">–</b> · In faucet: <b id="adm-faucet-bal">–</b> · Given so far: <b id="adm-faucet-given">–</b></p>
+            <div class="inline">
+              <input id="adm-faucet-amt" type="number" min="0" step="any" placeholder="HARD per badge" />
+              <button id="adm-faucet-set" class="primary">Save</button>
+            </div>
+            <div class="inline">
+              <input id="adm-faucet-fund" type="number" min="0" step="any" placeholder="HARD amount" />
+              <button id="adm-faucet-add" class="primary">Add HARD</button>
+              <button id="adm-faucet-out">Take back</button>
+            </div>
+          </div>
           <div class="box" id="adm-trade-box">
             <h3>Trading fee</h3>
             <p class="muted">Paid by each side of every trade (lock discounts apply on top). Allowed: 0–1%. Current: <b id="adm-trade-now">–</b></p>

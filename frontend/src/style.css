@@ -351,3 +351,10 @@ nav .cnt[hidden] { display: none; }
   .me { grid-template-columns: 1fr 1fr; }
 }
 .me-item .me-act { display: flex !important; gap: 8px; }
+
+.ob-step small.testnet-only { display: block; margin-top: 6px; color: #e6c46a; }
+.ob-step small.testnet-only[hidden] { display: none; }
+.ob-step small.testnet-only strong { font-weight: 700; color: #f3d98b; }
+.ob-step { flex-wrap: wrap; }
+.ob-step #ob-faucet { flex-basis: 100%; margin-top: 10px; }
+.ob-step #ob-faucet[hidden] { display: none; }

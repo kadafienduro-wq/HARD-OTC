@@ -456,3 +456,41 @@ fn prawdziwe_lsu_wycena_podzial_i_limity() {
     e.admin_call(true, "withdraw_lsu", manifest_args!(lsu)).expect_commit_success();
     assert_eq!(e.bal(admin.account, lsu), lsu_amount);
 }
+
+
+#[test]
+fn kranik_raz_na_badge_i_tylko_gdy_wlaczony() {
+    let mut e = Env::new();
+    let (admin, alice) = (admin_of(&e), alice_of(&e));
+    let claim = |e: &mut Env| {
+        let m = ManifestBuilder::new()
+            .lock_fee_from_faucet()
+            .create_proof_from_account_of_non_fungibles(alice.account, e.rider_badge, [NonFungibleLocalId::integer(2)])
+            .pop_from_auth_zone("rider")
+            .call_method_with_name_lookup(e.desk, "claim_faucet", |l| (l.proof("rider"),))
+            .deposit_batch(alice.account, ManifestExpression::EntireWorktop)
+            .build();
+        e.ledger.execute_manifest(m, signer(&alice))
+    };
+    failed_with(&claim(&mut e), "Faucet is off");
+    // tylko admin może włączyć i zasilić
+    assert!(!e.admin_call(false, "set_faucet_amount", manifest_args!(dec!("100"))).is_commit_success());
+    e.admin_call(true, "set_faucet_amount", manifest_args!(dec!("100"))).expect_commit_success();
+    failed_with(&claim(&mut e), "Faucet is empty");
+    let hard = e.hard;
+    let m = ManifestBuilder::new()
+        .lock_fee_from_faucet()
+        .create_proof_from_account_of_amount(admin.account, e.admin_badge, dec!("1"))
+        .withdraw_from_account(admin.account, hard, dec!("1000"))
+        .take_all_from_worktop(hard, "h")
+        .call_method_with_name_lookup(e.desk, "fund_faucet", |l| (l.bucket("h"),))
+        .build();
+    e.ledger.execute_manifest(m, signer(&admin)).expect_commit_success();
+    let h0 = e.bal(alice.account, hard);
+    claim(&mut e).expect_commit_success();
+    assert_eq!(e.bal(alice.account, hard), h0 + dec!("100"));
+    failed_with(&claim(&mut e), "Already claimed");
+    let a0 = e.bal(admin.account, hard);
+    e.admin_call(true, "withdraw_faucet", manifest_args!(dec!("0"))).expect_commit_success();
+    assert_eq!(e.bal(admin.account, hard), a0 + dec!("900"));
+}
