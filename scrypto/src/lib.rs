@@ -1,23 +1,18 @@
-//! HARD OTC Desk — escrow OTC na Radix (Stokenet).
+//! HARD OTC Desk v3 — escrow OTC na Radix.
 //!
-//! Przepływ:
-//! 1. Użytkownik mintuje darmowy Rider Badge (tożsamość na desku).
-//! 2. Sprzedający blokuje aktywo w escrow (`create_offer`) i podaje cenę.
-//! 3. Kupujący płaci (`accept_offer`) — w jednej, atomowej transakcji
-//!    kupujący dostaje aktywo, a sprzedający zapłatę na swoje konto.
-//! 4. Opłata: 0,75% z każdej strony (1,5% łącznie). Progi rabatowe za lock HARD:
-//!    >= 1 000 HARD: -20%, >= 10 000: -40%, >= 50 000: -60% (na swoją połowę opłaty).
-//! 5. Opłaty trafiają do skarbca (na buyback HARD / płynność). Opcjonalnie admin może
-//!    włączyć spalanie części opłat pobranych w HARD (domyślnie 0% = wyłączone).
-//! 8. Wypłata locka: najpierw prośba (request_unlock), po okresie oczekiwania
-//!    (domyślnie 7 dni, ustawia admin) odbiór (withdraw_unlocked). HARD w trakcie
-//!    wypłaty nie liczą się do rabatu.
-//! 7. Wystawienie oferty kosztuje opłatę w HARD (domyślnie 100 HARD, admin ustawia 0–100).
-//!    Trafia do skarbca i nie wraca przy anulowaniu.
-//! 6. Oferty zarezerwowane dla konkretnego kupującego: tylko dla ridera z >= 1 000 HARD w locku.
+//! 1. Rider Badge (darmowe NFT) = tożsamość na desku.
+//! 2. Sprzedający blokuje token w escrow (`create_offer`), płaci opłatę za ogłoszenie w HARD
+//!    (domyślnie 100, admin 0–100). Opcjonalnie: częściowe kupno, rezerwacja dla konkretnego ridera
+//!    (wymaga >= 1 000 HARD w locku).
+//! 3. Kupujący płaci (`accept_offer`) całość albo część (jeśli oferta pozwala) — atomowo.
+//! 4. Opłata od transakcji 0,75% z każdej strony; progi rabatowe za lock HARD (−20/−40/−60%).
+//! 5. Opłaty -> skarbiec (buyback HARD / płynność). Spalanie opcjonalne (admin, domyślnie 0%).
+//! 6. Promowanie oferty za HARD (★ na 24 h, opłata ustawiana przez admina).
+//! 7. Zweryfikowane tokeny: lista prowadzona przez admina (strona oznacza je ✓).
+//! 8. Reputacja: liczniki transakcji ridera (sprzedaże, zakupy).
+//! 9. Wypłata locka w dwóch krokach z okresem oczekiwania (domyślnie 7 dni).
 //!
-//! v1 obsługuje zasoby fungible po obu stronach (tokeny, LSU, LP).
-//! NFT (pozycje) — w kolejnej wersji.
+//! Obie strony oferty: zasoby fungible (tokeny, LSU, LP). NFT — w kolejnej wersji.
 
 use scrypto::prelude::*;
 
@@ -41,10 +36,22 @@ pub struct Offer {
     pub sell_amount: Decimal,
     pub ask_resource: ResourceAddress,
     pub ask_amount: Decimal,
+    /// ile jeszcze zostało do sprzedania / do zapłaty (przy częściowym kupnie maleje)
+    pub sell_remaining: Decimal,
+    pub ask_remaining: Decimal,
+    pub allow_partial: bool,
     pub created_at: Instant,
     pub expires_at: Instant,
+    pub featured_until: Instant,
     pub reserved_buyer: Option<NonFungibleLocalId>,
     pub status: OfferStatus,
+}
+
+#[derive(ScryptoSbor, Clone, Default)]
+pub struct RiderStats {
+    pub sells: u64,
+    pub buys: u64,
+    pub offers_created: u64,
 }
 
 #[derive(ScryptoSbor, ScryptoEvent)]
@@ -64,6 +71,9 @@ pub struct OfferFilledEvent {
     pub offer_id: u64,
     pub seller: NonFungibleLocalId,
     pub buyer: NonFungibleLocalId,
+    pub paid: Decimal,
+    pub received: Decimal,
+    pub fully_filled: bool,
     pub seller_fee: Decimal,
     pub buyer_fee: Decimal,
 }
@@ -71,6 +81,12 @@ pub struct OfferFilledEvent {
 #[derive(ScryptoSbor, ScryptoEvent)]
 pub struct OfferCancelledEvent {
     pub offer_id: u64,
+}
+
+#[derive(ScryptoSbor, ScryptoEvent)]
+pub struct OfferPromotedEvent {
+    pub offer_id: u64,
+    pub featured_until: Instant,
 }
 
 #[derive(ScryptoSbor, ScryptoEvent)]
@@ -87,7 +103,7 @@ pub struct HardLockChangedEvent {
 }
 
 #[blueprint]
-#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, HardLockChangedEvent, FeeCollectedEvent)]
+#[events(OfferCreatedEvent, OfferFilledEvent, OfferCancelledEvent, OfferPromotedEvent, HardLockChangedEvent, FeeCollectedEvent)]
 mod hard_otc {
     enable_method_auth! {
         methods {
@@ -95,6 +111,7 @@ mod hard_otc {
             create_offer => PUBLIC;
             accept_offer => PUBLIC;
             cancel_offer => PUBLIC;
+            promote_offer => PUBLIC;
             lock_hard => PUBLIC;
             request_unlock => PUBLIC;
             withdraw_unlocked => PUBLIC;
@@ -105,6 +122,9 @@ mod hard_otc {
             set_burn_share => restrict_to: [OWNER];
             set_listing_fee => restrict_to: [OWNER];
             set_unlock_period => restrict_to: [OWNER];
+            set_promotion_fee => restrict_to: [OWNER];
+            add_verified => restrict_to: [OWNER];
+            remove_verified => restrict_to: [OWNER];
         }
     }
 
@@ -120,6 +140,14 @@ mod hard_otc {
         hard_burn_share: Decimal,
         /// opłata w HARD za wystawienie oferty
         listing_fee_hard: Decimal,
+        /// opłata w HARD za promowanie oferty na 24 h
+        promotion_fee_hard: Decimal,
+        /// łącznie HARD z promowania ofert
+        promotion_fees_hard: Decimal,
+        /// tokeny zweryfikowane przez admina
+        verified: Vec<ResourceAddress>,
+        /// reputacja riderów
+        rider_stats: KeyValueStore<NonFungibleLocalId, RiderStats>,
         next_offer_id: u64,
         offers: KeyValueStore<u64, Offer>,
         escrow: KeyValueStore<u64, Vault>,
@@ -180,6 +208,10 @@ mod hard_otc {
                 fee_rate_per_side: dec!("0.0075"),
                 hard_burn_share: Decimal::ZERO,
                 listing_fee_hard: dec!("100"),
+                promotion_fee_hard: dec!("200"),
+                promotion_fees_hard: Decimal::ZERO,
+                verified: vec![XRD, hard_resource],
+                rider_stats: KeyValueStore::new(),
                 next_offer_id: 1,
                 offers: KeyValueStore::new(),
                 escrow: KeyValueStore::new(),
@@ -200,7 +232,7 @@ mod hard_otc {
             ))))
             .with_address(address_reservation)
             .metadata(metadata!(init {
-                "name" => "HARD OTC Desk (Stokenet)", locked;
+                "name" => "HARD OTC Desk v3 (Stokenet)", locked;
                 "description" => "Experimental escrow. Test assets only.", locked;
             }))
             .globalize();
@@ -245,6 +277,7 @@ mod hard_otc {
             reserved_buyer: Option<NonFungibleLocalId>,
             seller_account: Global<Account>,
             mut listing_fee: Bucket,
+            allow_partial: bool,
         ) -> (u64, Bucket) {
             assert!(!self.paused, "Desk is paused");
             let seller = self.check_rider(rider);
@@ -280,6 +313,7 @@ mod hard_otc {
             let now = Clock::current_time_rounded_to_seconds();
             let expires_at =
                 Instant::new(now.seconds_since_unix_epoch + (expiry_hours as i64) * 3600);
+            self.bump_stats(&seller, 0, 0, 1);
 
             let offer_id = self.next_offer_id;
             self.next_offer_id += 1;
@@ -294,8 +328,12 @@ mod hard_otc {
                     sell_amount,
                     ask_resource,
                     ask_amount,
+                    sell_remaining: sell_amount,
+                    ask_remaining: ask_amount,
+                    allow_partial,
                     created_at: now,
                     expires_at,
+                    featured_until: now,
                     reserved_buyer,
                     status: OfferStatus::Open,
                 },
@@ -316,7 +354,8 @@ mod hard_otc {
             (offer_id, listing_fee)
         }
 
-        /// Atomowe rozliczenie. Zwraca (kupione aktywo minus opłata kupującego, reszta z płatności).
+        /// Atomowe rozliczenie. Kupujący płaci całość (albo część, jeśli oferta na to pozwala).
+        /// Zwraca (kupiony token minus opłata kupującego, reszta płatności).
         pub fn accept_offer(&mut self, offer_id: u64, rider: Proof, mut payment: Bucket) -> (Bucket, Bucket) {
             assert!(!self.paused, "Desk is paused");
             let buyer = self.check_rider(rider);
@@ -332,24 +371,46 @@ mod hard_otc {
                 assert!(reserved == &buyer, "Offer is reserved for another rider");
             }
             assert!(payment.resource_address() == offer.ask_resource, "Wrong payment asset");
-            assert!(payment.amount() >= offer.ask_amount, "Payment too small");
+
+            // Ile płaci kupujący: całość pozostałej ceny albo mniej (częściowe kupno).
+            let pay = if payment.amount() >= offer.ask_remaining {
+                offer.ask_remaining
+            } else {
+                assert!(offer.allow_partial, "This offer must be bought in full");
+                payment.amount()
+            };
+            assert!(pay > Decimal::ZERO, "Payment is zero");
+            let full = pay == offer.ask_remaining;
+
+            // Ile tokenów dostaje (proporcjonalnie, zaokrąglone w dół na korzyść sprzedającego).
+            let mut asset = if full {
+                self.escrow.get_mut(&offer_id).unwrap().take_all()
+            } else {
+                let out = offer
+                    .sell_remaining
+                    .checked_mul(pay)
+                    .unwrap()
+                    .checked_div(offer.ask_remaining)
+                    .unwrap();
+                self.escrow
+                    .get_mut(&offer_id)
+                    .unwrap()
+                    .take_advanced(out, WithdrawStrategy::Rounded(RoundingMode::ToZero))
+            };
+            let received_gross = asset.amount();
+            assert!(received_gross > Decimal::ZERO, "Amount too small to fill");
 
             // Strona sprzedającego: zapłata minus jego opłata.
-            let mut to_seller = payment.take(offer.ask_amount);
-            let seller_fee_amt = self.fee_for(&offer.seller, offer.ask_amount);
+            let mut to_seller = payment.take(pay);
             let seller_fee = to_seller.take_advanced(
-                seller_fee_amt,
+                self.fee_for(&offer.seller, pay),
                 WithdrawStrategy::Rounded(RoundingMode::ToZero),
             );
-
-            // Strona kupującego: aktywo z escrow minus jego opłata.
-            let mut asset = self.escrow.get_mut(&offer_id).unwrap().take_all();
-            let buyer_fee_amt = self.fee_for(&buyer, offer.sell_amount);
+            // Strona kupującego: token minus jego opłata.
             let buyer_fee = asset.take_advanced(
-                buyer_fee_amt,
+                self.fee_for(&buyer, received_gross),
                 WithdrawStrategy::Rounded(RoundingMode::ToZero),
             );
-
             let seller_fee_taken = seller_fee.amount();
             let buyer_fee_taken = buyer_fee.amount();
             self.collect_fee(seller_fee);
@@ -359,19 +420,62 @@ mod hard_otc {
             let mut seller_account = offer.seller_account;
             seller_account.try_deposit_or_abort(to_seller, None);
 
-            offer.status = OfferStatus::Filled;
+            offer.ask_remaining = offer.ask_remaining.checked_sub(pay).unwrap();
+            offer.sell_remaining = offer.sell_remaining.checked_sub(received_gross).unwrap();
+            let fully_filled = offer.ask_remaining.is_zero() || offer.sell_remaining.is_zero();
+            if fully_filled {
+                offer.status = OfferStatus::Filled;
+                // Resztki (pył po zaokrągleniach) wracają do sprzedającego.
+                let dust = self.escrow.get_mut(&offer_id).unwrap().take_all();
+                seller_account.try_deposit_or_abort(dust, None);
+            }
             let seller = offer.seller.clone();
             self.offers.insert(offer_id, offer);
+
+            self.bump_stats(&seller, 1, 0, 0);
+            self.bump_stats(&buyer, 0, 1, 0);
 
             Runtime::emit_event(OfferFilledEvent {
                 offer_id,
                 seller,
                 buyer,
+                paid: pay,
+                received: received_gross,
+                fully_filled,
                 seller_fee: seller_fee_taken,
                 buyer_fee: buyer_fee_taken,
             });
 
             (asset, payment)
+        }
+
+        /// Promowanie oferty: ★ na górze rynku przez 24 h (kolejne opłacenie przedłuża).
+        /// Może tylko sprzedający. Opłata w HARD -> skarbiec. Zwraca resztę HARD.
+        pub fn promote_offer(&mut self, offer_id: u64, rider: Proof, mut hard: Bucket) -> Bucket {
+            assert!(!self.paused, "Desk is paused");
+            let who = self.check_rider(rider);
+            let mut offer = self.offers.get(&offer_id).expect("Offer not found").clone();
+            assert!(offer.seller == who, "Only the seller can promote");
+            assert!(offer.status == OfferStatus::Open, "Offer is not open");
+            assert!(hard.resource_address() == self.hard_resource, "Promotion is paid in HARD");
+            assert!(hard.amount() >= self.promotion_fee_hard, "Promotion fee too small");
+
+            if self.promotion_fee_hard > Decimal::ZERO {
+                let fee = hard.take(self.promotion_fee_hard);
+                self.promotion_fees_hard = self.promotion_fees_hard.checked_add(fee.amount()).unwrap();
+                self.collect_fee(fee);
+            }
+            let now = Clock::current_time_rounded_to_seconds().seconds_since_unix_epoch;
+            let base = if offer.featured_until.seconds_since_unix_epoch > now {
+                offer.featured_until.seconds_since_unix_epoch
+            } else {
+                now
+            };
+            offer.featured_until = Instant::new(base + 24 * 3600);
+            let featured_until = offer.featured_until;
+            self.offers.insert(offer_id, offer);
+            Runtime::emit_event(OfferPromotedEvent { offer_id, featured_until });
+            hard
         }
 
         /// Sprzedający zabiera aktywo z powrotem (także po wygaśnięciu). Działa nawet przy pauzie.
@@ -483,6 +587,25 @@ mod hard_otc {
             self.listing_fee_hard = amount;
         }
 
+        /// Opłata w HARD za promowanie oferty na 24 h.
+        pub fn set_promotion_fee(&mut self, amount: Decimal) {
+            assert!(amount >= Decimal::ZERO, "Fee cannot be negative");
+            self.promotion_fee_hard = amount;
+        }
+
+        /// Dodaje tokeny do listy zweryfikowanych.
+        pub fn add_verified(&mut self, resources: Vec<ResourceAddress>) {
+            for r in resources {
+                if !self.verified.contains(&r) {
+                    self.verified.push(r);
+                }
+            }
+        }
+
+        pub fn remove_verified(&mut self, resource: ResourceAddress) {
+            self.verified.retain(|r| *r != resource);
+        }
+
         /// Ile z opłat pobranych w HARD zamykać na zawsze: 0 = wyłączone, 0.5 = połowa, 1 = całość.
         pub fn set_burn_share(&mut self, share: Decimal) {
             assert!(share >= Decimal::ZERO && share <= Decimal::ONE, "Share must be between 0 and 1");
@@ -496,6 +619,14 @@ mod hard_otc {
                 .check_with_message(self.rider_badge.address(), "Invalid rider badge")
                 .as_non_fungible()
                 .non_fungible_local_id()
+        }
+
+        fn bump_stats(&mut self, rider: &NonFungibleLocalId, sells: u64, buys: u64, offers: u64) {
+            let mut st = self.rider_stats.get(rider).map(|s| s.clone()).unwrap_or_default();
+            st.sells += sells;
+            st.buys += buys;
+            st.offers_created += offers;
+            self.rider_stats.insert(rider.clone(), st);
         }
 
         fn locked_amount(&self, rider: &NonFungibleLocalId) -> Decimal {
