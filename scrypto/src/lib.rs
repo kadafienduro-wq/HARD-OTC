@@ -1,4 +1,4 @@
-//! HARD OTC Desk v3 — escrow OTC na Radix.
+//! HARD OTC Desk v5 — escrow OTC na Radix (gotowy pod mainnet).
 //!
 //! 1. HARD OTC Badge (darmowe NFT) = tożsamość na desku.
 //! 2. Sprzedający blokuje token w escrow (`create_offer`), płaci opłatę za ogłoszenie w HARD
@@ -304,13 +304,14 @@ mod hard_otc {
                 .divisibility(DIVISIBILITY_NONE)
                 .metadata(metadata!(init {
                     "name" => "HARD OTC Admin", locked;
+                    "description" => "Admin key for the HARD ADV OTC desk. Keep the second one as a backup.", locked;
                 }))
-                .mint_initial_supply(1);
+                .mint_initial_supply(2);
 
             let rider_badge = ResourceBuilder::new_integer_non_fungible::<RiderBadge>(OwnerRole::None)
                 .metadata(metadata!(init {
                     "name" => "HARD OTC Badge", locked;
-                    "description" => "Testnet identity badge for the HARD OTC desk. No monetary value.", locked;
+                    "description" => "Identity badge for the HARD ADV OTC desk. Free, no monetary value.", locked;
                 }))
                 .mint_roles(mint_roles! {
                     minter => rule!(require(global_caller(component_address)));
@@ -379,8 +380,8 @@ mod hard_otc {
             ))))
             .with_address(address_reservation)
             .metadata(metadata!(init {
-                "name" => "HARD OTC Desk v3 (Stokenet)", locked;
-                "description" => "Experimental escrow. Test assets only.", locked;
+                "name" => "HARD ADV OTC Desk", locked;
+                "description" => "Peer-to-peer OTC escrow for the HARD ADV community.", locked;
             }))
             .globalize();
 
@@ -436,6 +437,7 @@ mod hard_otc {
         ) -> (u64, Bucket) {
             assert!(!self.paused, "Desk is paused");
             let seller = self.check_rider(rider);
+            Self::assert_real_account(&seller_account);
 
             // Opłata za ogłoszenie (+ ewentualnie za rezerwację) w HARD -> skarbiec. Reszta wraca.
             assert!(listing_fee.resource_address() == self.hard_resource, "Listing fee must be paid in HARD");
@@ -629,6 +631,10 @@ mod hard_otc {
             let mut offer = self.offers.get(&offer_id).expect("Offer not found").clone();
             assert!(offer.seller == who, "Only the seller can promote");
             assert!(offer.status == OfferStatus::Open, "Offer is not open");
+            assert!(
+                !Clock::current_time_is_at_or_after(offer.expires_at, TimePrecision::Second),
+                "Offer expired"
+            );
             assert!(hard.resource_address() == self.hard_resource, "Promotion is paid in HARD");
             assert!(hard.amount() >= cost, "Promotion fee too small");
 
@@ -643,6 +649,11 @@ mod hard_otc {
             } else {
                 now
             };
+            // Nie da się zapłacić za wyróżnienie dłuższe niż ważność oferty (max 1 rozpoczęta doba ponad).
+            assert!(
+                base + ((days as i64) - 1) * 24 * 3600 < offer.expires_at.seconds_since_unix_epoch,
+                "Featuring would outlast the offer; choose fewer days"
+            );
             offer.featured_until = Instant::new(base + (days as i64) * 24 * 3600);
             let featured_until = offer.featured_until;
             self.offers.insert(offer_id, offer);
@@ -680,6 +691,7 @@ mod hard_otc {
             assert!(!self.paused, "Desk is paused");
             assert!(self.lsu_buyback_enabled, "Staked XRD buyback is not active");
             let who = self.check_rider(rider);
+            Self::assert_real_account(&account);
             let lsu_resource = lsu.resource_address();
             let lsu_amount = lsu.amount();
             assert!(lsu_amount > Decimal::ZERO, "Nothing to sell");
@@ -863,12 +875,15 @@ mod hard_otc {
         // ---------- Admin ----------
 
         /// Wypłata ze skarbca (np. na buyback HARD albo płynność na Ociswap).
-        pub fn withdraw_treasury(&mut self, resource: ResourceAddress) -> Bucket {
-            let bucket = self
-                .treasury
-                .get_mut(&resource)
-                .expect("Nothing in treasury for this resource")
-                .take_all();
+        /// `amount` = 0 oznacza całość.
+        pub fn withdraw_treasury(&mut self, resource: ResourceAddress, amount: Decimal) -> Bucket {
+            let bucket = {
+                let mut v = self
+                    .treasury
+                    .get_mut(&resource)
+                    .expect("Nothing in treasury for this resource");
+                Self::take_part(&mut *v, amount)
+            };
             let entry = self.treasury_withdrawn.entry(resource).or_insert(Decimal::ZERO);
             *entry = entry.checked_add(bucket.amount()).unwrap();
             bucket
@@ -881,6 +896,7 @@ mod hard_otc {
         /// Okres oczekiwania na wypłatę locka w sekundach (np. 604800 = 7 dni, 300 = 5 minut).
         pub fn set_unlock_period(&mut self, seconds: i64) {
             assert!(seconds >= 0, "Period cannot be negative");
+            assert!(seconds <= 30 * 24 * 3600, "Unlock period cannot exceed 30 days");
             self.unlock_period_seconds = seconds;
         }
 
@@ -938,8 +954,9 @@ mod hard_otc {
             self.buyback_xrd.put(xrd);
         }
 
-        pub fn withdraw_buyback_xrd(&mut self) -> Bucket {
-            self.buyback_xrd.take_all()
+        /// `amount` = 0 oznacza całość.
+        pub fn withdraw_buyback_xrd(&mut self, amount: Decimal) -> Bucket {
+            Self::take_part(&mut self.buyback_xrd, amount)
         }
 
         /// Zasilenie puli skupu w HARD.
@@ -948,10 +965,23 @@ mod hard_otc {
             self.buyback_hard.put(hard);
         }
 
-        pub fn withdraw_buyback_hard(&mut self) -> Bucket {
+        /// `amount` = 0 oznacza całość.
+        pub fn withdraw_buyback_hard(&mut self, amount: Decimal) -> Bucket {
             assert!(self.pool_shares_supply().is_zero(), "Pool has shareholders, use settle_pool instead");
-            self.pool_outstanding_cost = Decimal::ZERO;
-            self.buyback_hard.take_all()
+            let b = Self::take_part(&mut self.buyback_hard, amount);
+            if self.buyback_hard.amount().is_zero() {
+                self.pool_outstanding_cost = Decimal::ZERO;
+            }
+            b
+        }
+
+        fn take_part(vault: &mut Vault, amount: Decimal) -> Bucket {
+            assert!(amount >= Decimal::ZERO, "Amount cannot be negative");
+            if amount.is_zero() || amount >= vault.amount() {
+                vault.take_all()
+            } else {
+                vault.take_advanced(amount, WithdrawStrategy::Rounded(RoundingMode::ToZero))
+            }
         }
 
         // ---------- Wspólna pula skupu ----------
@@ -1126,6 +1156,11 @@ mod hard_otc {
                 .ok()
                 .flatten()
                 .expect("Not a liquid stake unit (no validator)");
+            // Tylko prawdziwy natywny walidator Radix (nie podrobiony komponent udający walidatora).
+            assert!(
+                validator_addr.as_node_id().entity_type() == Some(EntityType::GlobalValidator),
+                "Not a native Radix validator"
+            );
             let validator: Global<Validator> =
                 Global::from(ComponentAddress::new_or_panic(validator_addr.as_node_id().0));
             let pool_unit: GlobalAddress = validator
@@ -1138,6 +1173,20 @@ mod hard_otc {
                 "Token is not this validator's stake unit"
             );
             validator.get_redemption_value(amount)
+        }
+
+        /// Wypłaty trafiają tylko na prawdziwe konta Radix (nie na dowolny komponent).
+        fn assert_real_account(account: &Global<Account>) {
+            let et = account.address().as_node_id().entity_type();
+            assert!(
+                matches!(
+                    et,
+                    Some(EntityType::GlobalAccount)
+                        | Some(EntityType::GlobalPreallocatedSecp256k1Account)
+                        | Some(EntityType::GlobalPreallocatedEd25519Account)
+                ),
+                "Payout address must be a Radix account"
+            );
         }
 
         fn assert_fits_divisibility(resource: ResourceAddress, amount: Decimal) {
