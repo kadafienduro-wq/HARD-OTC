@@ -54,7 +54,7 @@ function icon(addr: string) {
 function tok(addr: string, amount?: number) {
   const t = tokenInfo(addr)
   const mark = isVerified(addr) ? '<span class="ver" title="Verified by HARD ADV">✓</span>' : '<span class="unver" title="Not verified. Check the address.">UNVERIFIED</span>'
-  const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}${esc(short(addr))}`
+  const sub = `${t.name && t.name !== t.symbol ? esc(t.name) + ' · ' : ''}<button type="button" class="addr" data-copy="${esc(addr)}" title="Copy full address">${esc(short(addr))} ⧉</button><a class="addr-link" href="${esc(CONFIG.explorerUrl)}/resource/${esc(addr)}" target="_blank" rel="noopener" title="Check this token in the Radix explorer">↗</a>`
   return `<span class="tok">${icon(addr)}<span><b>${amount !== undefined ? nf(amount) + ' ' : ''}${esc(t.symbol)}${mark}</b><small title="${esc(addr)}">${sub}</small></span></span>`
 }
 function timeLeft(ms: number) {
@@ -79,6 +79,17 @@ document.addEventListener('error', (e) => {
     img.replaceWith(span)
   }
 }, true)
+
+// Copy token address
+document.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest('[data-copy]') as HTMLElement | null
+  if (!b) return
+  e.stopPropagation()
+  navigator.clipboard?.writeText(b.dataset.copy!).then(
+    () => toast('Token address copied.', 2000),
+    () => toast(b.dataset.copy!, 8000),
+  )
+})
 
 // ---------- Offer helpers ----------
 /** "buy" = buy request (someone locks XRD to get a token); "sell" = sell offer. */

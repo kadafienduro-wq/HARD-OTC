@@ -17,6 +17,8 @@ export const CONFIG = {
   // Aktualna cena HARD (XRD za 1 HARD) z Ociswap. Na Stokenet testowy HARD nie ma rynku,
   // więc używamy ceny prawdziwego HARD z mainnetu.
   hardPriceFeed: 'https://api.ociswap.com/tokens/resource_rdx1thh4yr9k393uc4x45n4u9l7h57804qdhxxzdw2dpmu8cjpm6ueujpn',
+  // Eksplorator do podglądu tokenów (na mainnecie: https://dashboard.radixdlt.com)
+  explorerUrl: 'https://stokenet-dashboard.radixdlt.com',
   feePerSide: 0.0075,
   hardLockForDiscount: 1000,
 }
